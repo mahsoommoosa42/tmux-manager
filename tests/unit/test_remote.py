@@ -9,6 +9,7 @@ import paramiko
 import pytest
 
 from tmux_manager._remote import (
+    _load_ssh_config,
     _ssh_exec,
     attach_session,
     command_available,
@@ -29,10 +30,73 @@ def _make_client(exit_status: int = 0, output: bytes = b"") -> MagicMock:
     return client
 
 
+class TestLoadSshConfig:
+    def test_returns_empty_when_no_config_file(self, tmp_path):
+        with patch("tmux_manager._remote.Path.home", return_value=tmp_path):
+            result = _load_ssh_config("devbox", None)
+        assert result == {}
+
+    def test_resolves_hostname_alias(self, tmp_path):
+        ssh_dir = tmp_path / ".ssh"
+        ssh_dir.mkdir()
+        (ssh_dir / "config").write_text(
+            "Host devbox\n    HostName 192.168.1.10\n", encoding="utf-8"
+        )
+        with patch("tmux_manager._remote.Path.home", return_value=tmp_path):
+            result = _load_ssh_config("devbox", None)
+        assert result["hostname"] == "192.168.1.10"
+
+    def test_resolves_user_from_config(self, tmp_path):
+        ssh_dir = tmp_path / ".ssh"
+        ssh_dir.mkdir()
+        (ssh_dir / "config").write_text(
+            "Host devbox\n    User alice\n", encoding="utf-8"
+        )
+        with patch("tmux_manager._remote.Path.home", return_value=tmp_path):
+            result = _load_ssh_config("devbox", None)
+        assert result["username"] == "alice"
+
+    def test_explicit_user_overrides_config(self, tmp_path):
+        ssh_dir = tmp_path / ".ssh"
+        ssh_dir.mkdir()
+        (ssh_dir / "config").write_text(
+            "Host devbox\n    User config-user\n", encoding="utf-8"
+        )
+        with patch("tmux_manager._remote.Path.home", return_value=tmp_path):
+            result = _load_ssh_config("devbox", "explicit-user")
+        assert result["username"] == "explicit-user"
+
+    def test_resolves_port(self, tmp_path):
+        ssh_dir = tmp_path / ".ssh"
+        ssh_dir.mkdir()
+        (ssh_dir / "config").write_text(
+            "Host devbox\n    Port 2222\n", encoding="utf-8"
+        )
+        with patch("tmux_manager._remote.Path.home", return_value=tmp_path):
+            result = _load_ssh_config("devbox", None)
+        assert result["port"] == 2222
+
+    def test_resolves_identity_file(self, tmp_path):
+        ssh_dir = tmp_path / ".ssh"
+        ssh_dir.mkdir()
+        (ssh_dir / "config").write_text(
+            "Host devbox\n    IdentityFile ~/.ssh/id_ed25519\n", encoding="utf-8"
+        )
+        with patch("tmux_manager._remote.Path.home", return_value=tmp_path):
+            result = _load_ssh_config("devbox", None)
+        assert "key_filename" in result
+
+
+NO_CONFIG = {}  # empty SSH config for tests that don't need alias resolution
+
+
 class TestSshExec:
     def test_returns_exit_status_and_output(self):
         client = _make_client(0, b"hello\n")
-        with patch("tmux_manager._remote.paramiko.SSHClient", return_value=client):
+        with (
+            patch("tmux_manager._remote._load_ssh_config", return_value=NO_CONFIG),
+            patch("tmux_manager._remote.paramiko.SSHClient", return_value=client),
+        ):
             status, output = _ssh_exec("host", None, "cmd")
         assert status == 0
         assert output == "hello\n"
@@ -40,7 +104,10 @@ class TestSshExec:
     def test_ssh_exception_returns_minus_one(self):
         client = MagicMock()
         client.connect.side_effect = paramiko.SSHException("err")
-        with patch("tmux_manager._remote.paramiko.SSHClient", return_value=client):
+        with (
+            patch("tmux_manager._remote._load_ssh_config", return_value=NO_CONFIG),
+            patch("tmux_manager._remote.paramiko.SSHClient", return_value=client),
+        ):
             status, output = _ssh_exec("host", None, "cmd")
         assert status == -1
         assert output == ""
@@ -48,7 +115,10 @@ class TestSshExec:
     def test_socket_timeout_returns_minus_one(self):
         client = MagicMock()
         client.connect.side_effect = socket.timeout()
-        with patch("tmux_manager._remote.paramiko.SSHClient", return_value=client):
+        with (
+            patch("tmux_manager._remote._load_ssh_config", return_value=NO_CONFIG),
+            patch("tmux_manager._remote.paramiko.SSHClient", return_value=client),
+        ):
             status, output = _ssh_exec("host", None, "cmd")
         assert status == -1
         assert output == ""
@@ -56,30 +126,54 @@ class TestSshExec:
     def test_oserror_returns_minus_one(self):
         client = MagicMock()
         client.connect.side_effect = OSError("unreachable")
-        with patch("tmux_manager._remote.paramiko.SSHClient", return_value=client):
+        with (
+            patch("tmux_manager._remote._load_ssh_config", return_value=NO_CONFIG),
+            patch("tmux_manager._remote.paramiko.SSHClient", return_value=client),
+        ):
             status, output = _ssh_exec("host", None, "cmd")
         assert status == -1
         assert output == ""
 
     def test_client_always_closed(self):
         client = _make_client()
-        with patch("tmux_manager._remote.paramiko.SSHClient", return_value=client):
+        with (
+            patch("tmux_manager._remote._load_ssh_config", return_value=NO_CONFIG),
+            patch("tmux_manager._remote.paramiko.SSHClient", return_value=client),
+        ):
             _ssh_exec("host", None, "cmd")
         client.close.assert_called_once()
 
     def test_client_closed_on_exception(self):
         client = MagicMock()
         client.connect.side_effect = OSError()
-        with patch("tmux_manager._remote.paramiko.SSHClient", return_value=client):
+        with (
+            patch("tmux_manager._remote._load_ssh_config", return_value=NO_CONFIG),
+            patch("tmux_manager._remote.paramiko.SSHClient", return_value=client),
+        ):
             _ssh_exec("host", None, "cmd")
         client.close.assert_called_once()
 
-    def test_passes_user_and_host_to_connect(self):
+    def test_passes_host_and_user_to_connect(self):
         client = _make_client()
-        with patch("tmux_manager._remote.paramiko.SSHClient", return_value=client):
+        with (
+            patch("tmux_manager._remote._load_ssh_config", return_value=NO_CONFIG),
+            patch("tmux_manager._remote.paramiko.SSHClient", return_value=client),
+        ):
             _ssh_exec("myhost", "alice", "cmd")
         kw = client.connect.call_args.kwargs
         assert kw["hostname"] == "myhost"
+        assert kw["username"] == "alice"
+
+    def test_ssh_config_alias_resolves_hostname(self):
+        client = _make_client()
+        resolved = {"hostname": "192.168.1.10", "username": "alice", "port": 22}
+        with (
+            patch("tmux_manager._remote._load_ssh_config", return_value=resolved),
+            patch("tmux_manager._remote.paramiko.SSHClient", return_value=client),
+        ):
+            _ssh_exec("devbox", None, "cmd")
+        kw = client.connect.call_args.kwargs
+        assert kw["hostname"] == "192.168.1.10"
         assert kw["username"] == "alice"
 
 
@@ -96,7 +190,7 @@ class TestCommandAvailable:
         with patch("tmux_manager._remote._ssh_exec", return_value=(-1, "")):
             assert command_available("host", None, "tmux") is False
 
-    def test_passes_command_check(self):
+    def test_passes_correct_command_string(self):
         captured = {}
 
         def capture(host, user, cmd):
