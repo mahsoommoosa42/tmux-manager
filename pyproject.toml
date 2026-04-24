@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tmux-manager"
+version = "0.1.0"
+description = "Manage tmux sessions on local and remote machines"
+readme = "README.md"
+license = {text = "GPL-3.0-only"}
+requires-python = ">=3.10"
+authors = [{name = "mahsoommoosa42"}]
+keywords = ["tmux", "ssh", "sessions"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+    "Topic :: Utilities",
+]
+dependencies = ["paramiko"]
+
+[project.optional-dependencies]
+dev = ["pytest", "pytest-cov"]
+
+[project.urls]
+Homepage = "https://github.com/mahsoommoosa42/tmux-manager"
+Source = "https://github.com/mahsoommoosa42/tmux-manager"
+"Bug Tracker" = "https://github.com/mahsoommoosa42/tmux-manager/issues"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["tmux_manager*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--cov=tmux_manager --cov-report=term-missing --cov-fail-under=100"
+
+[tool.coverage.run]
+branch = true
+source = ["tmux_manager"]
+
+[tool.coverage.report]
+show_missing = true
