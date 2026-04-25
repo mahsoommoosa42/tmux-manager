@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allowlist": [
+      {
+        "tool": "Bash",
+        "prompt": "pytest --cov with coverage reporting"
+      }
+    ]
+  }
+}
