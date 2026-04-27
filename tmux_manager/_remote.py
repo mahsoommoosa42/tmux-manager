@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import getpass
 import shlex
 import socket
 import subprocess
 from pathlib import Path
 
 import paramiko
+
+# Module-level cache: (hostname, username) -> password
+_password_cache: dict[tuple[str, str | None], str] = {}
 
 
 def _load_ssh_config(host: str, user: str | None) -> dict:
@@ -43,24 +47,41 @@ def _ssh_exec(host: str, user: str | None, command: str) -> tuple[int, str]:
     """Execute *command* on *host* via paramiko; return (exit_status, stdout).
 
     Reads ~/.ssh/config so SSH aliases, custom ports, and identity files
-    are respected automatically.
+    are respected automatically.  If key-based auth fails, falls back to
+    password authentication (prompted once, then cached for the session).
     Returns (-1, "") on any connection, auth, or network failure.
     """
     ssh_cfg = _load_ssh_config(host, user)
+    connect_kw = {
+        "hostname": ssh_cfg.get("hostname", host),
+        "username": ssh_cfg.get("username", user),
+        "port": ssh_cfg.get("port", 22),
+        "key_filename": ssh_cfg.get("key_filename") or None,
+        "timeout": 5,
+    }
+    cache_key = (connect_kw["hostname"], connect_kw["username"])
 
     client = paramiko.SSHClient()
     client.load_system_host_keys()
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     try:
-        client.connect(
-            hostname=ssh_cfg.get("hostname", host),
-            username=ssh_cfg.get("username", user),
-            port=ssh_cfg.get("port", 22),
-            key_filename=ssh_cfg.get("key_filename") or None,
-            timeout=5,
-            look_for_keys=True,
-            allow_agent=True,
-        )
+        # If we already have a cached password, use it directly.
+        if cache_key in _password_cache:
+            client.connect(**connect_kw, password=_password_cache[cache_key])
+        else:
+            try:
+                client.connect(
+                    **connect_kw,
+                    look_for_keys=True,
+                    allow_agent=True,
+                )
+            except paramiko.AuthenticationException:
+                display_host = connect_kw["hostname"]
+                display_user = connect_kw["username"] or ""
+                prompt = f"Password for {display_user}@{display_host}: "
+                password = getpass.getpass(prompt)
+                client.connect(**connect_kw, password=password)
+                _password_cache[cache_key] = password
         _, stdout, _ = client.exec_command(command)
         exit_status = stdout.channel.recv_exit_status()
         output = stdout.read().decode()
