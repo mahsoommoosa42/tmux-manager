@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import select
 import shlex
+import shutil
 import socket
 import sys
 import threading
@@ -137,7 +138,9 @@ def _ssh_interactive(host: str, user: str | None, command: str | None = None) ->
             connect_kwargs["sock"] = ssh_cfg["sock"]
         client.connect(**connect_kwargs)
         channel = client.get_transport().open_session()
-        channel.get_pty()
+        term = os.environ.get("TERM", "xterm-256color")
+        cols, rows = shutil.get_terminal_size()
+        channel.get_pty(term=term, width=cols, height=rows)
         if command:
             channel.exec_command(command)
         else:
