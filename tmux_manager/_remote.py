@@ -67,7 +67,11 @@ def _ssh_exec(host: str, user: str | None, command: str) -> tuple[int, str]:
     try:
         # If we already have a cached password, use it directly.
         if cache_key in _password_cache:
-            client.connect(**connect_kw, password=_password_cache[cache_key])
+            try:
+                client.connect(**connect_kw, password=_password_cache[cache_key])
+            except paramiko.AuthenticationException:
+                del _password_cache[cache_key]
+                raise
         else:
             try:
                 client.connect(
@@ -77,8 +81,9 @@ def _ssh_exec(host: str, user: str | None, command: str) -> tuple[int, str]:
                 )
             except paramiko.AuthenticationException:
                 display_host = connect_kw["hostname"]
-                display_user = connect_kw["username"] or ""
-                prompt = f"Password for {display_user}@{display_host}: "
+                display_user = connect_kw["username"]
+                display_target = f"{display_user}@{display_host}" if display_user else display_host
+                prompt = f"Password for {display_target}: "
                 password = getpass.getpass(prompt)
                 client.connect(**connect_kw, password=password)
                 _password_cache[cache_key] = password

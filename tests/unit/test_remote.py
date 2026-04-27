@@ -282,7 +282,7 @@ class TestPasswordAuth:
             patch("tmux_manager._remote.getpass.getpass", return_value="pw") as mock_gp,
         ):
             _ssh_exec("myhost", None, "cmd")
-        mock_gp.assert_called_once_with("Password for @myhost: ")
+        mock_gp.assert_called_once_with("Password for myhost: ")
 
     def test_password_auth_also_fails_returns_minus_one(self):
         client = MagicMock()
@@ -296,7 +296,7 @@ class TestPasswordAuth:
         assert status == -1
         assert output == ""
 
-    def test_cached_password_auth_fails_returns_minus_one(self):
+    def test_cached_password_auth_fails_evicts_cache(self):
         _password_cache[("host", None)] = "stale-pw"
         client = MagicMock()
         client.connect.side_effect = paramiko.AuthenticationException("denied")
@@ -307,6 +307,7 @@ class TestPasswordAuth:
             status, output = _ssh_exec("host", None, "cmd")
         assert status == -1
         assert output == ""
+        assert ("host", None) not in _password_cache
 
 
 class TestCommandAvailable:
