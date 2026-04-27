@@ -200,18 +200,25 @@ def _forward_windows(channel: paramiko.Channel) -> None:
         finally:
             done.set()
 
-    reader = threading.Thread(target=_reader, daemon=True)
-    reader.start()
+    def _writer() -> None:
+        try:
+            while not done.is_set():
+                data = sys.stdin.buffer.read(1)
+                if not data:
+                    break
+                channel.send(data)
+        except (OSError, EOFError):
+            pass
+        finally:
+            done.set()
 
-    try:
-        while not done.is_set():
-            data = sys.stdin.buffer.read(1)
-            if not data:
-                break
-            channel.send(data)
-    finally:
-        done.set()
-        reader.join(timeout=2)
+    reader = threading.Thread(target=_reader, daemon=True)
+    writer = threading.Thread(target=_writer, daemon=True)
+    reader.start()
+    writer.start()
+    done.wait()
+    reader.join(timeout=2)
+    writer.join(timeout=2)
 
 
 def attach_session(host: str, user: str | None, name: str) -> None:

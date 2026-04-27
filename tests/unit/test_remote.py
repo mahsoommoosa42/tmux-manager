@@ -674,6 +674,24 @@ class TestForwardWindows:
 
             _forward_windows(channel)
 
+    def test_writer_handles_oserror(self):
+        import time
+
+        channel = MagicMock(spec=paramiko.Channel)
+        channel.recv.side_effect = lambda _: (time.sleep(0.1), b"")[1]
+        channel.send.side_effect = OSError("broken pipe")
+
+        mock_stdin = MagicMock()
+        mock_stdin.buffer.read.return_value = b"x"
+
+        with (
+            patch("tmux_manager._remote.sys.stdin", mock_stdin),
+            patch("tmux_manager._remote.sys.stdout"),
+        ):
+            from tmux_manager._remote import _forward_windows
+
+            _forward_windows(channel)
+
 
 class TestOpenShell:
     def test_delegates_to_ssh_interactive(self):
