@@ -46,6 +46,8 @@ def _load_ssh_config(host: str, user: str | None) -> dict:
         kwargs["key_filename"] = host_cfg["identityfile"]
     if "port" in host_cfg:
         kwargs["port"] = int(host_cfg["port"])
+    if "proxycommand" in host_cfg:
+        kwargs["sock"] = paramiko.ProxyCommand(host_cfg["proxycommand"])
     return kwargs
 
 
@@ -62,15 +64,18 @@ def _ssh_exec(host: str, user: str | None, command: str) -> tuple[int, str]:
     client.load_system_host_keys()
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     try:
-        client.connect(
-            hostname=ssh_cfg.get("hostname", host),
-            username=ssh_cfg.get("username", user),
-            port=ssh_cfg.get("port", 22),
-            key_filename=ssh_cfg.get("key_filename") or None,
-            timeout=5,
-            look_for_keys=True,
-            allow_agent=True,
-        )
+        connect_kwargs: dict = {
+            "hostname": ssh_cfg.get("hostname", host),
+            "username": ssh_cfg.get("username", user),
+            "port": ssh_cfg.get("port", 22),
+            "key_filename": ssh_cfg.get("key_filename") or None,
+            "timeout": 5,
+            "look_for_keys": True,
+            "allow_agent": True,
+        }
+        if "sock" in ssh_cfg:
+            connect_kwargs["sock"] = ssh_cfg["sock"]
+        client.connect(**connect_kwargs)
         _, stdout, _ = client.exec_command(command)
         exit_status = stdout.channel.recv_exit_status()
         output = stdout.read().decode()
@@ -120,15 +125,18 @@ def _ssh_interactive(host: str, user: str | None, command: str | None = None) ->
     client.load_system_host_keys()
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     try:
-        client.connect(
-            hostname=ssh_cfg.get("hostname", host),
-            username=ssh_cfg.get("username", user),
-            port=ssh_cfg.get("port", 22),
-            key_filename=ssh_cfg.get("key_filename") or None,
-            timeout=5,
-            look_for_keys=True,
-            allow_agent=True,
-        )
+        connect_kwargs: dict = {
+            "hostname": ssh_cfg.get("hostname", host),
+            "username": ssh_cfg.get("username", user),
+            "port": ssh_cfg.get("port", 22),
+            "key_filename": ssh_cfg.get("key_filename") or None,
+            "timeout": 5,
+            "look_for_keys": True,
+            "allow_agent": True,
+        }
+        if "sock" in ssh_cfg:
+            connect_kwargs["sock"] = ssh_cfg["sock"]
+        client.connect(**connect_kwargs)
         channel = client.get_transport().open_session()
         channel.get_pty()
         if command:
@@ -150,7 +158,7 @@ def _forward_io(channel: paramiko.Channel) -> None:
         _forward_windows(channel)
 
 
-def _forward_posix(channel: paramiko.Channel) -> None:
+def _forward_posix(channel: paramiko.Channel) -> None:  # pragma: no cover
     """POSIX I/O forwarding using termios raw mode and select."""
     oldtty = termios.tcgetattr(sys.stdin)
     try:
@@ -187,7 +195,7 @@ def _forward_windows(channel: paramiko.Channel) -> None:
                     break
                 sys.stdout.buffer.write(data)
                 sys.stdout.flush()
-        except socket.timeout:
+        except (socket.timeout, OSError, EOFError):
             pass
         finally:
             done.set()
@@ -203,6 +211,7 @@ def _forward_windows(channel: paramiko.Channel) -> None:
             channel.send(data)
     finally:
         done.set()
+        reader.join(timeout=2)
 
 
 def attach_session(host: str, user: str | None, name: str) -> None:

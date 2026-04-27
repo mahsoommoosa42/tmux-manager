@@ -7,8 +7,8 @@
 **Key Features:**
 - Local and remote tmux session management via single `TmuxManager` class
 - Automatic SSH config file parsing (handles aliases, ports, identity files, ProxyJump)
-- Paramiko-based SSH queries (no password prompts required)
-- System `ssh` binary for PTY-based operations (attach)
+- Paramiko-based SSH for all remote operations (queries, attach, interactive shell)
+- Interactive PTY support via paramiko channels with cross-platform I/O forwarding
 - 100% branch test coverage
 
 **Target Users:** Python developers building terminal UIs, deployment tools, or CI/CD integrations that need tmux session management.
@@ -75,11 +75,13 @@ LICENSE
 - **SSH Config Loading:** `_load_ssh_config(host, user) → dict with hostname/port/user/key`
 - **Operations:** Similar to `_local` but via SSH
 - **Key Details:**
-  - Uses `paramiko` for command execution (no interactive prompts)
+  - Uses `paramiko` for all remote operations (queries and interactive PTY)
   - `_load_ssh_config()` uses `paramiko.SSHConfig` to parse `~/.ssh/config`
-  - Handles hostname aliases, custom ports, identity files
-  - `attach_session()` delegates to system `ssh` binary (for PTY support)
-- **Testing:** Mock `paramiko.SSHClient`, `_load_ssh_config`, `subprocess.run()`
+  - Handles hostname aliases, custom ports, identity files, ProxyCommand
+  - `attach_session()` uses paramiko interactive PTY via `_ssh_interactive()`
+  - `open_shell()` opens a plain interactive SSH shell via paramiko
+  - `_forward_io()` dispatches to `_forward_posix()` (termios/select) or `_forward_windows()` (threading) based on `os.name`
+- **Testing:** Mock `paramiko.SSHClient`, `_load_ssh_config`, `_forward_io`
 
 ## Testing Strategy
 
@@ -145,6 +147,7 @@ def test_manager_dispatches_to_remote(self):
 - `port` — from `Port` field (defaults to 22)
 - `username` — from `User` field or function parameter
 - `key_filename` — list from `IdentityFile` fields
+- `sock` — `paramiko.ProxyCommand` from `ProxyCommand` field (supports ProxyJump via SSH config expansion)
 
 This allows users to define hosts once in SSH config and use the alias in code:
 ```python
@@ -201,10 +204,11 @@ pytest tests/unit/test_manager.py::TestTmuxManagerLocal::test_is_available_true
 
 ## Design Decisions
 
-### Why paramiko for queries, ssh CLI for attach?
-- Paramiko is lightweight and doesn't require interactive prompts
-- System `ssh` binary respects full SSH config (ProxyJump, etc.) and provides PTY
-- Mixing both is the best tradeoff between simplicity and functionality
+### Why paramiko for all remote operations?
+- Unified SSH layer — no dependency on system `ssh` binary being installed
+- Paramiko supports interactive PTY via `channel.get_pty()` + I/O forwarding
+- ProxyCommand/ProxyJump supported via `paramiko.ProxyCommand` and SSH config parsing
+- Cross-platform: POSIX uses `termios`/`select`, Windows uses `threading`
 
 ### Why synchronous API?
 - Simplicity: no event loops or asyncio complexity

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import socket
 from unittest.mock import MagicMock, call, patch
 
@@ -87,6 +88,16 @@ class TestLoadSshConfig:
         with patch("tmux_manager._remote.Path.home", return_value=tmp_path):
             result = _load_ssh_config("devbox", None)
         assert "key_filename" in result
+
+    def test_resolves_proxy_command(self, tmp_path):
+        ssh_dir = tmp_path / ".ssh"
+        ssh_dir.mkdir()
+        (ssh_dir / "config").write_text(
+            "Host devbox\n    ProxyCommand ssh -W %h:%p jumphost\n", encoding="utf-8"
+        )
+        with patch("tmux_manager._remote.Path.home", return_value=tmp_path):
+            result = _load_ssh_config("devbox", None)
+        assert "sock" in result
 
 
 NO_CONFIG = {}  # empty SSH config for tests that don't need alias resolution
@@ -177,6 +188,18 @@ class TestSshExec:
         kw = client.connect.call_args.kwargs
         assert kw["hostname"] == "192.168.1.10"
         assert kw["username"] == "alice"
+
+    def test_passes_sock_when_proxy_command_configured(self):
+        client = _make_client()
+        mock_sock = MagicMock()
+        resolved = {"hostname": "devbox", "sock": mock_sock}
+        with (
+            patch("tmux_manager._remote._load_ssh_config", return_value=resolved),
+            patch("tmux_manager._remote.paramiko.SSHClient", return_value=client),
+        ):
+            _ssh_exec("devbox", None, "cmd")
+        kw = client.connect.call_args.kwargs
+        assert kw["sock"] is mock_sock
 
 
 class TestCommandAvailable:
@@ -374,6 +397,19 @@ class TestSshInteractive:
         assert kw["username"] == "alice"
         assert kw["port"] == 2222
 
+    def test_passes_sock_when_proxy_command_configured(self):
+        client, channel = _make_interactive_client()
+        mock_sock = MagicMock()
+        resolved = {"hostname": "devbox", "sock": mock_sock}
+        with (
+            patch("tmux_manager._remote._load_ssh_config", return_value=resolved),
+            patch("tmux_manager._remote.paramiko.SSHClient", return_value=client),
+            patch("tmux_manager._remote._forward_io"),
+        ):
+            _ssh_interactive("devbox", None, "cmd")
+        kw = client.connect.call_args.kwargs
+        assert kw["sock"] is mock_sock
+
     def test_ssh_exception_returns_silently(self):
         client = MagicMock()
         client.connect.side_effect = paramiko.SSHException("err")
@@ -457,6 +493,7 @@ class TestForwardIo:
         mock_win.assert_called_once_with(channel)
 
 
+@pytest.mark.skipif(os.name != "posix", reason="termios/tty only available on POSIX")
 class TestForwardPosix:
     def test_sets_raw_mode_and_restores(self):
         channel = MagicMock(spec=paramiko.Channel)
@@ -598,6 +635,40 @@ class TestForwardWindows:
         with (
             patch("tmux_manager._remote.sys.stdin", mock_stdin),
             patch("tmux_manager._remote.sys.stdout", mock_stdout),
+        ):
+            from tmux_manager._remote import _forward_windows
+
+            _forward_windows(channel)
+
+    def test_reader_handles_oserror(self):
+        import time
+
+        channel = MagicMock(spec=paramiko.Channel)
+        channel.recv.side_effect = OSError("connection reset")
+
+        mock_stdin = MagicMock()
+        mock_stdin.buffer.read.side_effect = lambda _: (time.sleep(0.05), b"")[1]
+
+        with (
+            patch("tmux_manager._remote.sys.stdin", mock_stdin),
+            patch("tmux_manager._remote.sys.stdout"),
+        ):
+            from tmux_manager._remote import _forward_windows
+
+            _forward_windows(channel)
+
+    def test_reader_handles_eoferror(self):
+        import time
+
+        channel = MagicMock(spec=paramiko.Channel)
+        channel.recv.side_effect = EOFError()
+
+        mock_stdin = MagicMock()
+        mock_stdin.buffer.read.side_effect = lambda _: (time.sleep(0.05), b"")[1]
+
+        with (
+            patch("tmux_manager._remote.sys.stdin", mock_stdin),
+            patch("tmux_manager._remote.sys.stdout"),
         ):
             from tmux_manager._remote import _forward_windows
 
