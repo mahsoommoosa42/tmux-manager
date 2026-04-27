@@ -195,7 +195,7 @@ pytest tests/unit/test_manager.py::TestTmuxManagerLocal::test_is_available_true
 **Dev Dependencies:**
 - `pytest`, `pytest-cov` — testing and coverage
 
-**Python Version:** 3.10+ (f-strings, union types with `|`)
+**Python Version:** 3.12 only
 
 **File Encoding:** UTF-8 (explicitly specified in code)
 
