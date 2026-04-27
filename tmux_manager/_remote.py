@@ -6,6 +6,7 @@ import getpass
 import shlex
 import socket
 import subprocess
+import sys
 from pathlib import Path
 
 import paramiko
@@ -80,6 +81,8 @@ def _ssh_exec(host: str, user: str | None, command: str) -> tuple[int, str]:
                     allow_agent=True,
                 )
             except paramiko.AuthenticationException:
+                if not sys.stdin.isatty():
+                    raise
                 display_host = connect_kw["hostname"]
                 display_user = connect_kw["username"]
                 display_target = f"{display_user}@{display_host}" if display_user else display_host

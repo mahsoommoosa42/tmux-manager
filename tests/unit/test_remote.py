@@ -202,10 +202,13 @@ class TestPasswordAuth:
                 raise paramiko.AuthenticationException("key auth failed")
 
         client.connect.side_effect = connect_side_effect
+        mock_stdin = MagicMock()
+        mock_stdin.isatty.return_value = True
         with (
             patch("tmux_manager._remote._load_ssh_config", return_value=NO_CONFIG),
             patch("tmux_manager._remote.paramiko.SSHClient", return_value=client),
             patch("tmux_manager._remote.getpass.getpass", return_value="secret"),
+            patch("tmux_manager._remote.sys.stdin", mock_stdin),
         ):
             status, output = _ssh_exec("host", "alice", "cmd")
         assert status == 0
@@ -224,10 +227,13 @@ class TestPasswordAuth:
                 raise paramiko.AuthenticationException("key auth failed")
 
         client.connect.side_effect = connect_side_effect
+        mock_stdin = MagicMock()
+        mock_stdin.isatty.return_value = True
         with (
             patch("tmux_manager._remote._load_ssh_config", return_value=NO_CONFIG),
             patch("tmux_manager._remote.paramiko.SSHClient", return_value=client),
             patch("tmux_manager._remote.getpass.getpass", return_value="secret"),
+            patch("tmux_manager._remote.sys.stdin", mock_stdin),
         ):
             _ssh_exec("host", "alice", "cmd")
         assert ("host", "alice") in _password_cache
@@ -257,10 +263,13 @@ class TestPasswordAuth:
                 raise paramiko.AuthenticationException("key auth failed")
 
         client.connect.side_effect = connect_side_effect
+        mock_stdin = MagicMock()
+        mock_stdin.isatty.return_value = True
         with (
             patch("tmux_manager._remote._load_ssh_config", return_value=NO_CONFIG),
             patch("tmux_manager._remote.paramiko.SSHClient", return_value=client),
             patch("tmux_manager._remote.getpass.getpass", return_value="pw") as mock_gp,
+            patch("tmux_manager._remote.sys.stdin", mock_stdin),
         ):
             _ssh_exec("myhost", "bob", "cmd")
         mock_gp.assert_called_once_with("Password for bob@myhost: ")
@@ -276,10 +285,13 @@ class TestPasswordAuth:
                 raise paramiko.AuthenticationException("key auth failed")
 
         client.connect.side_effect = connect_side_effect
+        mock_stdin = MagicMock()
+        mock_stdin.isatty.return_value = True
         with (
             patch("tmux_manager._remote._load_ssh_config", return_value=NO_CONFIG),
             patch("tmux_manager._remote.paramiko.SSHClient", return_value=client),
             patch("tmux_manager._remote.getpass.getpass", return_value="pw") as mock_gp,
+            patch("tmux_manager._remote.sys.stdin", mock_stdin),
         ):
             _ssh_exec("myhost", None, "cmd")
         mock_gp.assert_called_once_with("Password for myhost: ")
@@ -287,10 +299,27 @@ class TestPasswordAuth:
     def test_password_auth_also_fails_returns_minus_one(self):
         client = MagicMock()
         client.connect.side_effect = paramiko.AuthenticationException("denied")
+        mock_stdin = MagicMock()
+        mock_stdin.isatty.return_value = True
         with (
             patch("tmux_manager._remote._load_ssh_config", return_value=NO_CONFIG),
             patch("tmux_manager._remote.paramiko.SSHClient", return_value=client),
             patch("tmux_manager._remote.getpass.getpass", return_value="wrong"),
+            patch("tmux_manager._remote.sys.stdin", mock_stdin),
+        ):
+            status, output = _ssh_exec("host", None, "cmd")
+        assert status == -1
+        assert output == ""
+
+    def test_no_prompt_when_not_tty(self):
+        client = MagicMock()
+        client.connect.side_effect = paramiko.AuthenticationException("denied")
+        mock_stdin = MagicMock()
+        mock_stdin.isatty.return_value = False
+        with (
+            patch("tmux_manager._remote._load_ssh_config", return_value=NO_CONFIG),
+            patch("tmux_manager._remote.paramiko.SSHClient", return_value=client),
+            patch("tmux_manager._remote.sys.stdin", mock_stdin),
         ):
             status, output = _ssh_exec("host", None, "cmd")
         assert status == -1
