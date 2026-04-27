@@ -71,7 +71,7 @@ def _ssh_exec(host: str, user: str | None, command: str) -> tuple[int, str]:
             is_auth_failure = isinstance(
                 exc, paramiko.AuthenticationException
             ) or "no authentication methods" in str(exc).lower()
-            if not is_auth_failure or not sys.stdin.isatty():
+            if not is_auth_failure or not (sys.stdin is not None and sys.stdin.isatty()):
                 raise
             display_host = connect_kw["hostname"]
             display_user = connect_kw["username"]

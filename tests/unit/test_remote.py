@@ -276,6 +276,18 @@ class TestPasswordAuth:
         assert status == -1
         assert output == ""
 
+    def test_no_prompt_when_stdin_is_none(self):
+        client = MagicMock()
+        client.connect.side_effect = paramiko.AuthenticationException("denied")
+        with (
+            patch("tmux_manager._remote._load_ssh_config", return_value=NO_CONFIG),
+            patch("tmux_manager._remote.paramiko.SSHClient", return_value=client),
+            patch("tmux_manager._remote.sys.stdin", None),
+        ):
+            status, output = _ssh_exec("host", None, "cmd")
+        assert status == -1
+        assert output == ""
+
     def test_no_auth_methods_prompts_for_password(self):
         client = _make_client(0, b"ok\n")
         call_count = 0
