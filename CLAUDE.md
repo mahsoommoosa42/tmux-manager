@@ -7,7 +7,7 @@
 **Key Features:**
 - Local and remote tmux session management via single `TmuxManager` class
 - Automatic SSH config file parsing (handles aliases, ports, identity files, ProxyJump)
-- Paramiko-based SSH queries (no password prompts required)
+- Paramiko-based SSH queries (key auth preferred, password fallback via getpass)
 - System `ssh` binary for PTY-based operations (attach)
 - 100% branch test coverage
 
@@ -75,7 +75,7 @@ LICENSE
 - **SSH Config Loading:** `_load_ssh_config(host, user) → dict with hostname/port/user/key`
 - **Operations:** Similar to `_local` but via SSH
 - **Key Details:**
-  - Uses `paramiko` for command execution (no interactive prompts)
+  - Uses `paramiko` for command execution (key auth first, password fallback via `getpass`)
   - `_load_ssh_config()` uses `paramiko.SSHConfig` to parse `~/.ssh/config`
   - Handles hostname aliases, custom ports, identity files
   - `attach_session()` delegates to system `ssh` binary (for PTY support)
@@ -202,7 +202,7 @@ pytest tests/unit/test_manager.py::TestTmuxManagerLocal::test_is_available_true
 ## Design Decisions
 
 ### Why paramiko for queries, ssh CLI for attach?
-- Paramiko is lightweight and doesn't require interactive prompts
+- Paramiko is lightweight and supports both key and password auth
 - System `ssh` binary respects full SSH config (ProxyJump, etc.) and provides PTY
 - Mixing both is the best tradeoff between simplicity and functionality
 
@@ -219,7 +219,7 @@ pytest tests/unit/test_manager.py::TestTmuxManagerLocal::test_is_available_true
 ## Known Limitations and Future Work
 
 **Current Limitations:**
-- Password-based SSH authentication not supported (key-based only)
+- Password is cached in-memory only (module-level dict, cleared on process exit)
 - No session information beyond names (id, creation time, etc.)
 - No support for reading tmux config files
 
