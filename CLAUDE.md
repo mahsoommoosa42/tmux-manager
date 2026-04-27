@@ -219,7 +219,7 @@ pytest tests/unit/test_manager.py::TestTmuxManagerLocal::test_is_available_true
 ## Known Limitations and Future Work
 
 **Current Limitations:**
-- Password is cached in-memory only (module-level dict, cleared on process exit)
+- Password prompted every time via getpass (never cached or stored)
 - No session information beyond names (id, creation time, etc.)
 - No support for reading tmux config files
 

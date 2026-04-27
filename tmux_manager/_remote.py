@@ -11,10 +11,6 @@ from pathlib import Path
 
 import paramiko
 
-# Module-level cache: (hostname, username) -> password
-_password_cache: dict[tuple[str, str | None], str] = {}
-
-
 def _load_ssh_config(host: str, user: str | None) -> dict:
     """Read ~/.ssh/config and resolve connect kwargs for *host*.
 
@@ -48,8 +44,8 @@ def _ssh_exec(host: str, user: str | None, command: str) -> tuple[int, str]:
     """Execute *command* on *host* via paramiko; return (exit_status, stdout).
 
     Reads ~/.ssh/config so SSH aliases, custom ports, and identity files
-    are respected automatically.  If key-based auth fails, falls back to
-    password authentication (prompted once, then cached for the session).
+    are respected automatically.  If key-based auth fails and stdin is a
+    TTY, falls back to password authentication (prompted every time).
     Returns (-1, "") on any connection, auth, or network failure.
     """
     ssh_cfg = _load_ssh_config(host, user)
@@ -60,39 +56,29 @@ def _ssh_exec(host: str, user: str | None, command: str) -> tuple[int, str]:
         "key_filename": ssh_cfg.get("key_filename") or None,
         "timeout": 5,
     }
-    cache_key = (connect_kw["hostname"], connect_kw["username"])
 
     client = paramiko.SSHClient()
     client.load_system_host_keys()
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     try:
-        # If we already have a cached password, use it directly.
-        if cache_key in _password_cache:
-            try:
-                client.connect(**connect_kw, password=_password_cache[cache_key])
-            except paramiko.AuthenticationException:
-                del _password_cache[cache_key]
+        try:
+            client.connect(
+                **connect_kw,
+                look_for_keys=True,
+                allow_agent=True,
+            )
+        except paramiko.SSHException as exc:
+            is_auth_failure = isinstance(
+                exc, paramiko.AuthenticationException
+            ) or "no authentication methods" in str(exc).lower()
+            if not is_auth_failure or not sys.stdin.isatty():
                 raise
-        else:
-            try:
-                client.connect(
-                    **connect_kw,
-                    look_for_keys=True,
-                    allow_agent=True,
-                )
-            except paramiko.SSHException as exc:
-                is_auth_failure = isinstance(
-                    exc, paramiko.AuthenticationException
-                ) or "no authentication methods" in str(exc).lower()
-                if not is_auth_failure or not sys.stdin.isatty():
-                    raise
-                display_host = connect_kw["hostname"]
-                display_user = connect_kw["username"]
-                display_target = f"{display_user}@{display_host}" if display_user else display_host
-                prompt = f"Password for {display_target}: "
-                password = getpass.getpass(prompt)
-                client.connect(**connect_kw, password=password)
-                _password_cache[cache_key] = password
+            display_host = connect_kw["hostname"]
+            display_user = connect_kw["username"]
+            display_target = f"{display_user}@{display_host}" if display_user else display_host
+            prompt = f"Password for {display_target}: "
+            password = getpass.getpass(prompt)
+            client.connect(**connect_kw, password=password)
         _, stdout, _ = client.exec_command(command)
         exit_status = stdout.channel.recv_exit_status()
         output = stdout.read().decode()

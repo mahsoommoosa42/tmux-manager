@@ -10,7 +10,6 @@ import pytest
 
 from tmux_manager._remote import (
     _load_ssh_config,
-    _password_cache,
     _ssh_exec,
     attach_session,
     command_available,
@@ -92,12 +91,6 @@ NO_CONFIG = {}  # empty SSH config for tests that don't need alias resolution
 
 
 class TestSshExec:
-    def setup_method(self):
-        _password_cache.clear()
-
-    def teardown_method(self):
-        _password_cache.clear()
-
     def test_returns_exit_status_and_output(self):
         client = _make_client(0, b"hello\n")
         with (
@@ -185,12 +178,6 @@ class TestSshExec:
 
 
 class TestPasswordAuth:
-    def setup_method(self):
-        _password_cache.clear()
-
-    def teardown_method(self):
-        _password_cache.clear()
-
     def test_password_fallback_on_auth_failure(self):
         client = _make_client(0, b"ok\n")
         call_count = 0
@@ -215,42 +202,6 @@ class TestPasswordAuth:
         assert output == "ok\n"
         assert client.connect.call_count == 2
         assert client.connect.call_args.kwargs["password"] == "secret"
-
-    def test_password_cached_after_success(self):
-        client = _make_client(0, b"ok\n")
-        call_count = 0
-
-        def connect_side_effect(**kw):
-            nonlocal call_count
-            call_count += 1
-            if call_count == 1 and "password" not in kw:
-                raise paramiko.AuthenticationException("key auth failed")
-
-        client.connect.side_effect = connect_side_effect
-        mock_stdin = MagicMock()
-        mock_stdin.isatty.return_value = True
-        with (
-            patch("tmux_manager._remote._load_ssh_config", return_value=NO_CONFIG),
-            patch("tmux_manager._remote.paramiko.SSHClient", return_value=client),
-            patch("tmux_manager._remote.getpass.getpass", return_value="secret"),
-            patch("tmux_manager._remote.sys.stdin", mock_stdin),
-        ):
-            _ssh_exec("host", "alice", "cmd")
-        assert ("host", "alice") in _password_cache
-        assert _password_cache[("host", "alice")] == "secret"
-
-    def test_cached_password_used_on_second_call(self):
-        _password_cache[("host", "alice")] = "cached-pw"
-        client = _make_client(0, b"ok\n")
-        with (
-            patch("tmux_manager._remote._load_ssh_config", return_value=NO_CONFIG),
-            patch("tmux_manager._remote.paramiko.SSHClient", return_value=client),
-        ):
-            status, output = _ssh_exec("host", "alice", "cmd")
-        assert status == 0
-        kw = client.connect.call_args.kwargs
-        assert kw["password"] == "cached-pw"
-        assert client.connect.call_count == 1
 
     def test_password_prompt_shows_host_and_user(self):
         client = _make_client(0, b"ok\n")
@@ -374,20 +325,6 @@ class TestPasswordAuth:
             status, output = _ssh_exec("host", None, "cmd")
         assert status == -1
         assert output == ""
-
-    def test_cached_password_auth_fails_evicts_cache(self):
-        _password_cache[("host", None)] = "stale-pw"
-        client = MagicMock()
-        client.connect.side_effect = paramiko.AuthenticationException("denied")
-        with (
-            patch("tmux_manager._remote._load_ssh_config", return_value=NO_CONFIG),
-            patch("tmux_manager._remote.paramiko.SSHClient", return_value=client),
-        ):
-            status, output = _ssh_exec("host", None, "cmd")
-        assert status == -1
-        assert output == ""
-        assert ("host", None) not in _password_cache
-
 
 class TestCommandAvailable:
     def test_found(self):
