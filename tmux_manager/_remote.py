@@ -13,8 +13,8 @@ from pathlib import Path
 import paramiko
 
 try:
-    import termios
-    import tty
+    import termios  # pragma: no cover
+    import tty  # pragma: no cover
 except ImportError:  # pragma: no cover
     termios = None  # type: ignore[assignment]
     tty = None  # type: ignore[assignment]
