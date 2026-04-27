@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shlex
 import socket
 import subprocess
 from pathlib import Path
@@ -21,7 +22,8 @@ def _load_ssh_config(host: str, user: str | None) -> dict:
         return {}
 
     cfg = paramiko.SSHConfig()
-    cfg.parse(config_path.open(encoding="utf-8"))
+    with config_path.open(encoding="utf-8") as fh:
+        cfg.parse(fh)
     host_cfg = cfg.lookup(host)
 
     kwargs: dict = {"hostname": host_cfg.get("hostname", host)}
@@ -71,7 +73,7 @@ def _ssh_exec(host: str, user: str | None, command: str) -> tuple[int, str]:
 
 def command_available(host: str, user: str | None, cmd: str) -> bool:
     """Return True if *cmd* is on PATH on *host*."""
-    exit_status, _ = _ssh_exec(host, user, f"command -v {cmd}")
+    exit_status, _ = _ssh_exec(host, user, f"command -v {shlex.quote(cmd)}")
     return exit_status == 0
 
 
@@ -87,17 +89,17 @@ def list_sessions(host: str, user: str | None) -> list[str]:
 
 def new_session(host: str, user: str | None, name: str) -> bool:
     """Create a new detached tmux session on *host*. True on success."""
-    exit_status, _ = _ssh_exec(host, user, f"tmux new-session -d -s '{name}'")
+    exit_status, _ = _ssh_exec(host, user, f"tmux new-session -d -s {shlex.quote(name)}")
     return exit_status == 0
 
 
 def kill_session(host: str, user: str | None, name: str) -> bool:
     """Kill the named tmux session on *host*. True on success."""
-    exit_status, _ = _ssh_exec(host, user, f"tmux kill-session -t '{name}'")
+    exit_status, _ = _ssh_exec(host, user, f"tmux kill-session -t {shlex.quote(name)}")
     return exit_status == 0
 
 
 def attach_session(host: str, user: str | None, name: str) -> None:
     """Attach to *name* on *host* via ssh -t (requires a live PTY)."""
     target = f"{user}@{host}" if user else host
-    subprocess.run(["ssh", "-t", target, f"tmux attach-session -t '{name}'"])
+    subprocess.run(["ssh", "-t", target, f"tmux attach-session -t {shlex.quote(name)}"])

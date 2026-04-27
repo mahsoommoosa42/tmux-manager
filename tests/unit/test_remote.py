@@ -202,6 +202,18 @@ class TestCommandAvailable:
 
         assert "fzf" in captured["cmd"]
 
+    def test_shell_quotes_command_name(self):
+        captured = {}
+
+        def capture(host, user, cmd):
+            captured["cmd"] = cmd
+            return 0, ""
+
+        with patch("tmux_manager._remote._ssh_exec", side_effect=capture):
+            command_available("host", None, "bad;rm -rf /")
+
+        assert captured["cmd"] == "command -v 'bad;rm -rf /'"
+
 
 class TestListSessions:
     def test_returns_session_names(self):
@@ -254,6 +266,18 @@ class TestNewSession:
 
         assert "mysession" in captured["cmd"]
 
+    def test_shell_quotes_session_name(self):
+        captured = {}
+
+        def capture(host, user, cmd):
+            captured["cmd"] = cmd
+            return 0, ""
+
+        with patch("tmux_manager._remote._ssh_exec", side_effect=capture):
+            new_session("host", None, "bad'; rm -rf /")
+
+        assert captured["cmd"] == "tmux new-session -d -s 'bad'\"'\"'; rm -rf /'"
+
 
 class TestKillSession:
     def test_success_returns_true(self):
@@ -276,6 +300,18 @@ class TestKillSession:
 
         assert "mysession" in captured["cmd"]
 
+    def test_shell_quotes_session_name(self):
+        captured = {}
+
+        def capture(host, user, cmd):
+            captured["cmd"] = cmd
+            return 0, ""
+
+        with patch("tmux_manager._remote._ssh_exec", side_effect=capture):
+            kill_session("host", None, "bad'; rm -rf /")
+
+        assert captured["cmd"] == "tmux kill-session -t 'bad'\"'\"'; rm -rf /'"
+
 
 class TestAttachSession:
     def test_calls_ssh_t(self):
@@ -297,3 +333,9 @@ class TestAttachSession:
             attach_session("devbox", None, "mysession")
         full = " ".join(mock_run.call_args[0][0])
         assert "mysession" in full
+
+    def test_shell_quotes_session_name(self):
+        with patch("tmux_manager._remote.subprocess.run") as mock_run:
+            attach_session("devbox", None, "bad'; rm -rf /")
+        tmux_cmd = mock_run.call_args[0][0][-1]
+        assert tmux_cmd == "tmux attach-session -t 'bad'\"'\"'; rm -rf /'"
