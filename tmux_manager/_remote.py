@@ -2,12 +2,22 @@
 
 from __future__ import annotations
 
+import os
+import select
 import shlex
 import socket
-import subprocess
+import sys
+import threading
 from pathlib import Path
 
 import paramiko
+
+try:
+    import termios
+    import tty
+except ImportError:  # pragma: no cover
+    termios = None  # type: ignore[assignment]
+    tty = None  # type: ignore[assignment]
 
 
 def _load_ssh_config(host: str, user: str | None) -> dict:
@@ -99,7 +109,107 @@ def kill_session(host: str, user: str | None, name: str) -> bool:
     return exit_status == 0
 
 
+def _ssh_interactive(host: str, user: str | None, command: str | None = None) -> None:
+    """Open an interactive paramiko session to *host* with PTY forwarding.
+
+    If *command* is given it is executed in the remote PTY; otherwise an
+    interactive login shell is opened.
+    """
+    ssh_cfg = _load_ssh_config(host, user)
+    client = paramiko.SSHClient()
+    client.load_system_host_keys()
+    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    try:
+        client.connect(
+            hostname=ssh_cfg.get("hostname", host),
+            username=ssh_cfg.get("username", user),
+            port=ssh_cfg.get("port", 22),
+            key_filename=ssh_cfg.get("key_filename") or None,
+            timeout=5,
+            look_for_keys=True,
+            allow_agent=True,
+        )
+        channel = client.get_transport().open_session()
+        channel.get_pty()
+        if command:
+            channel.exec_command(command)
+        else:
+            channel.invoke_shell()
+        _forward_io(channel)
+    except (paramiko.SSHException, socket.timeout, OSError):
+        return
+    finally:
+        client.close()
+
+
+def _forward_io(channel: paramiko.Channel) -> None:
+    """Forward stdin/stdout between the local terminal and *channel*."""
+    if os.name == "posix":
+        _forward_posix(channel)
+    else:
+        _forward_windows(channel)
+
+
+def _forward_posix(channel: paramiko.Channel) -> None:
+    """POSIX I/O forwarding using termios raw mode and select."""
+    oldtty = termios.tcgetattr(sys.stdin)
+    try:
+        tty.setraw(sys.stdin.fileno())
+        tty.setcbreak(sys.stdin.fileno())
+        channel.settimeout(0.0)
+
+        while True:
+            r, _, _ = select.select([channel, sys.stdin], [], [])
+            if channel in r:
+                data = channel.recv(1024)
+                if not data:
+                    break
+                sys.stdout.buffer.write(data)
+                sys.stdout.flush()
+            if sys.stdin in r:
+                data = sys.stdin.buffer.read(1)
+                if not data:
+                    break
+                channel.send(data)
+    finally:
+        termios.tcsetattr(sys.stdin, termios.TCSADRAIN, oldtty)
+
+
+def _forward_windows(channel: paramiko.Channel) -> None:
+    """Windows I/O forwarding using threads."""
+    done = threading.Event()
+
+    def _reader() -> None:
+        try:
+            while True:
+                data = channel.recv(1024)
+                if not data:
+                    break
+                sys.stdout.buffer.write(data)
+                sys.stdout.flush()
+        except socket.timeout:
+            pass
+        finally:
+            done.set()
+
+    reader = threading.Thread(target=_reader, daemon=True)
+    reader.start()
+
+    try:
+        while not done.is_set():
+            data = sys.stdin.buffer.read(1)
+            if not data:
+                break
+            channel.send(data)
+    finally:
+        done.set()
+
+
 def attach_session(host: str, user: str | None, name: str) -> None:
-    """Attach to *name* on *host* via ssh -t (requires a live PTY)."""
-    target = f"{user}@{host}" if user else host
-    subprocess.run(["ssh", "-t", target, f"tmux attach-session -t {shlex.quote(name)}"])
+    """Attach to *name* on *host* via paramiko interactive PTY."""
+    _ssh_interactive(host, user, f"tmux attach-session -t {shlex.quote(name)}")
+
+
+def open_shell(host: str, user: str | None) -> None:
+    """Open an interactive SSH shell on *host* via paramiko."""
+    _ssh_interactive(host, user)

@@ -53,6 +53,10 @@ class TestTmuxManagerLocal:
             TmuxManager().attach_session("main")
         m.assert_called_once_with("main")
 
+    def test_open_shell_local_noop(self):
+        result = TmuxManager().open_shell()
+        assert result is None
+
 
 class TestTmuxManagerRemote:
     """TmuxManager with host dispatches to _remote."""
@@ -91,6 +95,11 @@ class TestTmuxManagerRemote:
         with patch("tmux_manager.manager._remote.attach_session") as m:
             TmuxManager("devbox", "alice").attach_session("main")
         m.assert_called_once_with("devbox", "alice", "main")
+
+    def test_open_shell_passes_args(self):
+        with patch("tmux_manager.manager._remote.open_shell") as m:
+            TmuxManager("devbox", "alice").open_shell()
+        m.assert_called_once_with("devbox", "alice")
 
     def test_no_user_passes_none(self):
         with patch("tmux_manager.manager._remote.list_sessions", return_value=[]) as m:

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import socket
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 import paramiko
 import pytest
@@ -11,11 +11,13 @@ import pytest
 from tmux_manager._remote import (
     _load_ssh_config,
     _ssh_exec,
+    _ssh_interactive,
     attach_session,
     command_available,
     kill_session,
     list_sessions,
     new_session,
+    open_shell,
 )
 
 
@@ -313,29 +315,302 @@ class TestKillSession:
         assert captured["cmd"] == "tmux kill-session -t 'bad'\"'\"'; rm -rf /'"
 
 
+def _make_interactive_client() -> MagicMock:
+    """Build a mock paramiko SSHClient with transport and channel for interactive tests."""
+    channel = MagicMock(spec=paramiko.Channel)
+    transport = MagicMock()
+    transport.open_session.return_value = channel
+    client = MagicMock()
+    client.get_transport.return_value = transport
+    return client, channel
+
+
+class TestSshInteractive:
+    def test_connects_and_opens_pty_with_command(self):
+        client, channel = _make_interactive_client()
+        with (
+            patch("tmux_manager._remote._load_ssh_config", return_value=NO_CONFIG),
+            patch("tmux_manager._remote.paramiko.SSHClient", return_value=client),
+            patch("tmux_manager._remote._forward_io"),
+        ):
+            _ssh_interactive("devbox", None, "tmux attach-session -t main")
+        channel.get_pty.assert_called_once()
+        channel.exec_command.assert_called_once_with("tmux attach-session -t main")
+        channel.invoke_shell.assert_not_called()
+
+    def test_opens_shell_when_no_command(self):
+        client, channel = _make_interactive_client()
+        with (
+            patch("tmux_manager._remote._load_ssh_config", return_value=NO_CONFIG),
+            patch("tmux_manager._remote.paramiko.SSHClient", return_value=client),
+            patch("tmux_manager._remote._forward_io"),
+        ):
+            _ssh_interactive("devbox", None)
+        channel.get_pty.assert_called_once()
+        channel.invoke_shell.assert_called_once()
+        channel.exec_command.assert_not_called()
+
+    def test_forwards_io(self):
+        client, channel = _make_interactive_client()
+        with (
+            patch("tmux_manager._remote._load_ssh_config", return_value=NO_CONFIG),
+            patch("tmux_manager._remote.paramiko.SSHClient", return_value=client),
+            patch("tmux_manager._remote._forward_io") as mock_fwd,
+        ):
+            _ssh_interactive("devbox", None, "cmd")
+        mock_fwd.assert_called_once_with(channel)
+
+    def test_uses_ssh_config(self):
+        client, channel = _make_interactive_client()
+        resolved = {"hostname": "192.168.1.10", "username": "alice", "port": 2222}
+        with (
+            patch("tmux_manager._remote._load_ssh_config", return_value=resolved),
+            patch("tmux_manager._remote.paramiko.SSHClient", return_value=client),
+            patch("tmux_manager._remote._forward_io"),
+        ):
+            _ssh_interactive("devbox", None, "cmd")
+        kw = client.connect.call_args.kwargs
+        assert kw["hostname"] == "192.168.1.10"
+        assert kw["username"] == "alice"
+        assert kw["port"] == 2222
+
+    def test_ssh_exception_returns_silently(self):
+        client = MagicMock()
+        client.connect.side_effect = paramiko.SSHException("err")
+        with (
+            patch("tmux_manager._remote._load_ssh_config", return_value=NO_CONFIG),
+            patch("tmux_manager._remote.paramiko.SSHClient", return_value=client),
+        ):
+            _ssh_interactive("devbox", None, "cmd")
+        client.close.assert_called_once()
+
+    def test_socket_timeout_returns_silently(self):
+        client = MagicMock()
+        client.connect.side_effect = socket.timeout()
+        with (
+            patch("tmux_manager._remote._load_ssh_config", return_value=NO_CONFIG),
+            patch("tmux_manager._remote.paramiko.SSHClient", return_value=client),
+        ):
+            _ssh_interactive("devbox", None, "cmd")
+        client.close.assert_called_once()
+
+    def test_oserror_returns_silently(self):
+        client = MagicMock()
+        client.connect.side_effect = OSError("unreachable")
+        with (
+            patch("tmux_manager._remote._load_ssh_config", return_value=NO_CONFIG),
+            patch("tmux_manager._remote.paramiko.SSHClient", return_value=client),
+        ):
+            _ssh_interactive("devbox", None, "cmd")
+        client.close.assert_called_once()
+
+    def test_client_always_closed(self):
+        client, _ = _make_interactive_client()
+        with (
+            patch("tmux_manager._remote._load_ssh_config", return_value=NO_CONFIG),
+            patch("tmux_manager._remote.paramiko.SSHClient", return_value=client),
+            patch("tmux_manager._remote._forward_io"),
+        ):
+            _ssh_interactive("devbox", None, "cmd")
+        client.close.assert_called_once()
+
+
 class TestAttachSession:
-    def test_calls_ssh_t(self):
-        with patch("tmux_manager._remote.subprocess.run") as mock_run:
+    def test_delegates_to_ssh_interactive(self):
+        with patch("tmux_manager._remote._ssh_interactive") as mock:
             attach_session("devbox", None, "main")
-        args = mock_run.call_args[0][0]
-        assert "ssh" in args
-        assert "-t" in args
-        assert "devbox" in args
+        mock.assert_called_once_with("devbox", None, "tmux attach-session -t main")
 
     def test_includes_user(self):
-        with patch("tmux_manager._remote.subprocess.run") as mock_run:
+        with patch("tmux_manager._remote._ssh_interactive") as mock:
             attach_session("devbox", "alice", "main")
-        args = mock_run.call_args[0][0]
-        assert "alice@devbox" in args
-
-    def test_includes_session_name(self):
-        with patch("tmux_manager._remote.subprocess.run") as mock_run:
-            attach_session("devbox", None, "mysession")
-        full = " ".join(mock_run.call_args[0][0])
-        assert "mysession" in full
+        mock.assert_called_once_with("devbox", "alice", "tmux attach-session -t main")
 
     def test_shell_quotes_session_name(self):
-        with patch("tmux_manager._remote.subprocess.run") as mock_run:
+        with patch("tmux_manager._remote._ssh_interactive") as mock:
             attach_session("devbox", None, "bad'; rm -rf /")
-        tmux_cmd = mock_run.call_args[0][0][-1]
-        assert tmux_cmd == "tmux attach-session -t 'bad'\"'\"'; rm -rf /'"
+        cmd = mock.call_args[0][2]
+        assert cmd == "tmux attach-session -t 'bad'\"'\"'; rm -rf /'"
+
+
+class TestForwardIo:
+    def test_dispatches_to_posix_on_posix(self):
+        channel = MagicMock(spec=paramiko.Channel)
+        with (
+            patch("tmux_manager._remote.os.name", "posix"),
+            patch("tmux_manager._remote._forward_posix") as mock_posix,
+        ):
+            from tmux_manager._remote import _forward_io
+
+            _forward_io(channel)
+        mock_posix.assert_called_once_with(channel)
+
+    def test_dispatches_to_windows_on_nt(self):
+        channel = MagicMock(spec=paramiko.Channel)
+        with (
+            patch("tmux_manager._remote.os.name", "nt"),
+            patch("tmux_manager._remote._forward_windows") as mock_win,
+        ):
+            from tmux_manager._remote import _forward_io
+
+            _forward_io(channel)
+        mock_win.assert_called_once_with(channel)
+
+
+class TestForwardPosix:
+    def test_sets_raw_mode_and_restores(self):
+        channel = MagicMock(spec=paramiko.Channel)
+        channel.recv.return_value = b""
+
+        mock_stdin = MagicMock()
+        mock_stdin.fileno.return_value = 0
+        mock_stdin.buffer.read.return_value = b""
+
+        with (
+            patch("tmux_manager._remote.select.select", return_value=([channel], [], [])),
+            patch("tmux_manager._remote.sys.stdin", mock_stdin),
+            patch("tmux_manager._remote.sys.stdout") as mock_stdout,
+            patch("tmux_manager._remote.termios.tcgetattr", return_value=[0]) as mock_get,
+            patch("tmux_manager._remote.termios.tcsetattr") as mock_set,
+            patch("tmux_manager._remote.tty.setraw"),
+            patch("tmux_manager._remote.tty.setcbreak"),
+        ):
+            from tmux_manager._remote import _forward_posix
+
+            _forward_posix(channel)
+        mock_get.assert_called_once()
+        mock_set.assert_called_once()
+
+    def test_reads_channel_data(self):
+        channel = MagicMock(spec=paramiko.Channel)
+        channel.recv.side_effect = [b"hello", b""]
+
+        mock_stdin = MagicMock()
+        mock_stdin.fileno.return_value = 0
+
+        mock_stdout = MagicMock()
+
+        with (
+            patch(
+                "tmux_manager._remote.select.select",
+                side_effect=[([channel], [], []), ([channel], [], [])],
+            ),
+            patch("tmux_manager._remote.sys.stdin", mock_stdin),
+            patch("tmux_manager._remote.sys.stdout", mock_stdout),
+            patch("tmux_manager._remote.termios.tcgetattr", return_value=[0]),
+            patch("tmux_manager._remote.termios.tcsetattr"),
+            patch("tmux_manager._remote.tty.setraw"),
+            patch("tmux_manager._remote.tty.setcbreak"),
+        ):
+            from tmux_manager._remote import _forward_posix
+
+            _forward_posix(channel)
+        mock_stdout.buffer.write.assert_any_call(b"hello")
+
+    def test_reads_stdin_data(self):
+        channel = MagicMock(spec=paramiko.Channel)
+
+        mock_stdin = MagicMock()
+        mock_stdin.fileno.return_value = 0
+        mock_stdin.buffer.read.side_effect = [b"x", b""]
+
+        with (
+            patch(
+                "tmux_manager._remote.select.select",
+                side_effect=[([mock_stdin], [], []), ([mock_stdin], [], [])],
+            ),
+            patch("tmux_manager._remote.sys.stdin", mock_stdin),
+            patch("tmux_manager._remote.sys.stdout"),
+            patch("tmux_manager._remote.termios.tcgetattr", return_value=[0]),
+            patch("tmux_manager._remote.termios.tcsetattr"),
+            patch("tmux_manager._remote.tty.setraw"),
+            patch("tmux_manager._remote.tty.setcbreak"),
+        ):
+            from tmux_manager._remote import _forward_posix
+
+            _forward_posix(channel)
+        channel.send.assert_called_once_with(b"x")
+
+
+class TestForwardWindows:
+    def test_stdin_eof_sets_done(self):
+        channel = MagicMock(spec=paramiko.Channel)
+        channel.recv.return_value = b""
+
+        mock_stdin = MagicMock()
+        mock_stdin.buffer.read.return_value = b""
+
+        with (
+            patch("tmux_manager._remote.sys.stdin", mock_stdin),
+            patch("tmux_manager._remote.sys.stdout"),
+        ):
+            from tmux_manager._remote import _forward_windows
+
+            _forward_windows(channel)
+
+    def test_sends_stdin_to_channel(self):
+        import time
+
+        channel = MagicMock(spec=paramiko.Channel)
+        channel.recv.side_effect = lambda _: (time.sleep(0.1), b"")[1]
+
+        mock_stdin = MagicMock()
+        mock_stdin.buffer.read.side_effect = [b"x", b""]
+
+        with (
+            patch("tmux_manager._remote.sys.stdin", mock_stdin),
+            patch("tmux_manager._remote.sys.stdout"),
+        ):
+            from tmux_manager._remote import _forward_windows
+
+            _forward_windows(channel)
+        channel.send.assert_called_once_with(b"x")
+
+    def test_reader_writes_channel_data_to_stdout(self):
+        import time
+
+        channel = MagicMock(spec=paramiko.Channel)
+        channel.recv.side_effect = [b"hello", b""]
+
+        mock_stdout = MagicMock()
+        mock_stdin = MagicMock()
+        mock_stdin.buffer.read.side_effect = lambda _: (time.sleep(0.05), b"")[1]
+
+        with (
+            patch("tmux_manager._remote.sys.stdin", mock_stdin),
+            patch("tmux_manager._remote.sys.stdout", mock_stdout),
+        ):
+            from tmux_manager._remote import _forward_windows
+
+            _forward_windows(channel)
+        mock_stdout.buffer.write.assert_any_call(b"hello")
+
+    def test_reader_handles_socket_timeout(self):
+        import time
+
+        channel = MagicMock(spec=paramiko.Channel)
+        channel.recv.side_effect = [socket.timeout(), b""]
+
+        mock_stdout = MagicMock()
+        mock_stdin = MagicMock()
+        mock_stdin.buffer.read.side_effect = lambda _: (time.sleep(0.05), b"")[1]
+
+        with (
+            patch("tmux_manager._remote.sys.stdin", mock_stdin),
+            patch("tmux_manager._remote.sys.stdout", mock_stdout),
+        ):
+            from tmux_manager._remote import _forward_windows
+
+            _forward_windows(channel)
+
+
+class TestOpenShell:
+    def test_delegates_to_ssh_interactive(self):
+        with patch("tmux_manager._remote._ssh_interactive") as mock:
+            open_shell("devbox", None)
+        mock.assert_called_once_with("devbox", None)
+
+    def test_passes_user(self):
+        with patch("tmux_manager._remote._ssh_interactive") as mock:
+            open_shell("devbox", "alice")
+        mock.assert_called_once_with("devbox", "alice")

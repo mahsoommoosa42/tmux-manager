@@ -57,3 +57,9 @@ class TmuxManager:
             _local.attach_session(name)
         else:
             _remote.attach_session(self._host, self._user, name)
+
+    def open_shell(self) -> None:
+        """Open an interactive SSH shell (remote only)."""
+        if self._host is None:
+            return
+        _remote.open_shell(self._host, self._user)
