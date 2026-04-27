@@ -222,6 +222,7 @@ pytest tests/unit/test_manager.py::TestTmuxManagerLocal::test_is_available_true
 - Password-based SSH authentication not supported (key-based only)
 - No session information beyond names (id, creation time, etc.)
 - No support for reading tmux config files
+- Remote hosts must be in ~/.ssh/known_hosts (AutoAddPolicy is not used for security reasons)
 
 **Future Opportunities:**
 - Async API (TmuxManagerAsync) if needed

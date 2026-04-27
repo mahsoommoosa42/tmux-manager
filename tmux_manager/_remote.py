@@ -50,7 +50,7 @@ def _ssh_exec(host: str, user: str | None, command: str) -> tuple[int, str]:
 
     client = paramiko.SSHClient()
     client.load_system_host_keys()
-    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    client.set_missing_host_key_policy(paramiko.RejectPolicy())
     try:
         client.connect(
             hostname=ssh_cfg.get("hostname", host),

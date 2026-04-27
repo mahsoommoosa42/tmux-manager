@@ -164,6 +164,17 @@ class TestSshExec:
         assert kw["hostname"] == "myhost"
         assert kw["username"] == "alice"
 
+    def test_uses_reject_policy(self):
+        client = _make_client()
+        with (
+            patch("tmux_manager._remote._load_ssh_config", return_value=NO_CONFIG),
+            patch("tmux_manager._remote.paramiko.SSHClient", return_value=client),
+        ):
+            _ssh_exec("host", None, "cmd")
+        client.set_missing_host_key_policy.assert_called_once()
+        policy = client.set_missing_host_key_policy.call_args[0][0]
+        assert isinstance(policy, paramiko.RejectPolicy)
+
     def test_ssh_config_alias_resolves_hostname(self):
         client = _make_client()
         resolved = {"hostname": "192.168.1.10", "username": "alice", "port": 22}
