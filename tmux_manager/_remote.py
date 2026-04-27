@@ -7,6 +7,7 @@ import shlex
 import socket
 import subprocess
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 import paramiko
@@ -121,6 +122,39 @@ def kill_session(host: str, user: str | None, name: str) -> bool:
     """Kill the named tmux session on *host*. True on success."""
     exit_status, _ = _ssh_exec(host, user, f"tmux kill-session -t {shlex.quote(name)}")
     return exit_status == 0
+
+
+def session_info(host: str, user: str | None, name: str) -> dict | None:
+    """Return metadata for the named session on *host*, or None."""
+    fmt = "#{session_windows}\\t#{session_created}\\t#{session_attached}"
+    exit_status, output = _ssh_exec(
+        host, user, f"tmux display-message -t {shlex.quote(name)} -p {shlex.quote(fmt)}"
+    )
+    if exit_status != 0 or not output.strip():
+        return None
+    parts = output.strip().split("\t")
+    return {
+        "name": name,
+        "windows": int(parts[0]),
+        "created": datetime.fromtimestamp(int(parts[1]), tz=timezone.utc).strftime(
+            "%Y-%m-%d %H:%M:%S UTC"
+        ),
+        "attached": parts[2] != "0",
+    }
+
+
+def capture_pane(host: str, user: str | None, name: str, lines: int = 50) -> str:
+    """Capture visible pane content from the named session on *host*."""
+    exit_status, output = _ssh_exec(
+        host, user, f"tmux capture-pane -t {shlex.quote(name)} -p"
+    )
+    if exit_status != 0:
+        return ""
+    content = output.rstrip("\n")
+    output_lines = content.splitlines()
+    if len(output_lines) > lines:
+        output_lines = output_lines[-lines:]
+    return "\n".join(output_lines)
 
 
 def attach_session(host: str, user: str | None, name: str) -> None:

@@ -53,6 +53,19 @@ class TestTmuxManagerLocal:
             TmuxManager().attach_session("main")
         m.assert_called_once_with("main")
 
+    def test_session_info(self):
+        info = {"name": "main", "windows": 2, "created": "2023-11-14", "attached": False}
+        with patch("tmux_manager.manager._local.session_info", return_value=info) as m:
+            result = TmuxManager().session_info("main")
+        m.assert_called_once_with("main")
+        assert result == info
+
+    def test_capture_pane(self):
+        with patch("tmux_manager.manager._local.capture_pane", return_value="$ ls") as m:
+            result = TmuxManager().capture_pane("main", lines=10)
+        m.assert_called_once_with("main", 10)
+        assert result == "$ ls"
+
 
 class TestTmuxManagerRemote:
     """TmuxManager with host dispatches to _remote."""
@@ -96,3 +109,16 @@ class TestTmuxManagerRemote:
         with patch("tmux_manager.manager._remote.list_sessions", return_value=[]) as m:
             TmuxManager("devbox").list_sessions()
         m.assert_called_once_with("devbox", None)
+
+    def test_session_info_passes_args(self):
+        info = {"name": "main", "windows": 1, "created": "2023-11-14", "attached": True}
+        with patch("tmux_manager.manager._remote.session_info", return_value=info) as m:
+            result = TmuxManager("devbox", "alice").session_info("main")
+        m.assert_called_once_with("devbox", "alice", "main")
+        assert result == info
+
+    def test_capture_pane_passes_args(self):
+        with patch("tmux_manager.manager._remote.capture_pane", return_value="$ pwd") as m:
+            result = TmuxManager("devbox", "alice").capture_pane("main", lines=20)
+        m.assert_called_once_with("devbox", "alice", "main", 20)
+        assert result == "$ pwd"

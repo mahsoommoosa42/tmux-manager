@@ -12,10 +12,12 @@ from tmux_manager._remote import (
     _load_ssh_config,
     _ssh_exec,
     attach_session,
+    capture_pane,
     command_available,
     kill_session,
     list_sessions,
     new_session,
+    session_info,
 )
 
 
@@ -512,6 +514,79 @@ class TestKillSession:
             kill_session("host", None, "bad'; rm -rf /")
 
         assert captured["cmd"] == "tmux kill-session -t 'bad'\"'\"'; rm -rf /'"
+
+
+class TestSessionInfo:
+    def test_returns_metadata(self):
+        with patch("tmux_manager._remote._ssh_exec", return_value=(0, "3\t1700000000\t1\n")):
+            info = session_info("host", None, "main")
+        assert info is not None
+        assert info["name"] == "main"
+        assert info["windows"] == 3
+        assert info["attached"] is True
+        assert "2023" in info["created"]
+
+    def test_returns_none_on_failure(self):
+        with patch("tmux_manager._remote._ssh_exec", return_value=(-1, "")):
+            assert session_info("host", None, "missing") is None
+
+    def test_returns_none_on_empty_output(self):
+        with patch("tmux_manager._remote._ssh_exec", return_value=(0, "")):
+            assert session_info("host", None, "missing") is None
+
+    def test_not_attached(self):
+        with patch("tmux_manager._remote._ssh_exec", return_value=(0, "1\t1700000000\t0\n")):
+            info = session_info("host", None, "work")
+        assert info is not None
+        assert info["attached"] is False
+
+    def test_shell_quotes_session_name(self):
+        captured = {}
+
+        def capture(host, user, cmd):
+            captured["cmd"] = cmd
+            return 0, "1\t1700000000\t0\n"
+
+        with patch("tmux_manager._remote._ssh_exec", side_effect=capture):
+            session_info("host", None, "bad'; rm -rf /")
+
+        assert "'" in captured["cmd"]
+
+
+class TestCapturePane:
+    def test_returns_pane_content(self):
+        with patch("tmux_manager._remote._ssh_exec", return_value=(0, "$ ls\nfile1\n")):
+            content = capture_pane("host", None, "main")
+        assert "$ ls" in content
+        assert "file1" in content
+
+    def test_returns_empty_on_failure(self):
+        with patch("tmux_manager._remote._ssh_exec", return_value=(-1, "")):
+            assert capture_pane("host", None, "missing") == ""
+
+    def test_truncates_to_lines(self):
+        long_output = "\n".join(f"line{i}" for i in range(100)) + "\n"
+        with patch("tmux_manager._remote._ssh_exec", return_value=(0, long_output)):
+            content = capture_pane("host", None, "main", lines=10)
+        assert len(content.splitlines()) == 10
+        assert "line99" in content
+
+    def test_no_truncation_when_short(self):
+        with patch("tmux_manager._remote._ssh_exec", return_value=(0, "short\n")):
+            content = capture_pane("host", None, "main", lines=50)
+        assert content == "short"
+
+    def test_shell_quotes_session_name(self):
+        captured = {}
+
+        def capture(host, user, cmd):
+            captured["cmd"] = cmd
+            return 0, "content\n"
+
+        with patch("tmux_manager._remote._ssh_exec", side_effect=capture):
+            capture_pane("host", None, "bad'; rm -rf /")
+
+        assert "'" in captured["cmd"]
 
 
 class TestAttachSession:

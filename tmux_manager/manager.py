@@ -51,6 +51,18 @@ class TmuxManager:
             return _local.kill_session(name)
         return _remote.kill_session(self._host, self._user, name)
 
+    def session_info(self, name: str) -> dict | None:
+        """Return metadata dict for *name*, or None if it doesn't exist."""
+        if self._host is None:
+            return _local.session_info(name)
+        return _remote.session_info(self._host, self._user, name)
+
+    def capture_pane(self, name: str, lines: int = 50) -> str:
+        """Capture visible pane content from *name*."""
+        if self._host is None:
+            return _local.capture_pane(name, lines)
+        return _remote.capture_pane(self._host, self._user, name, lines)
+
     def attach_session(self, name: str) -> None:
         """Attach to *name* (requires a live PTY)."""
         if self._host is None:
