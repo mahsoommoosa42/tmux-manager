@@ -46,7 +46,7 @@ def _load_ssh_config(host: str, user: str | None) -> dict:
         kwargs["key_filename"] = host_cfg["identityfile"]
     if "port" in host_cfg:
         kwargs["port"] = int(host_cfg["port"])
-    if "proxycommand" in host_cfg:
+    if "proxycommand" in host_cfg and host_cfg["proxycommand"] is not None:
         kwargs["sock"] = paramiko.ProxyCommand(host_cfg["proxycommand"])
     return kwargs
 
@@ -58,12 +58,11 @@ def _ssh_exec(host: str, user: str | None, command: str) -> tuple[int, str]:
     are respected automatically.
     Returns (-1, "") on any connection, auth, or network failure.
     """
-    ssh_cfg = _load_ssh_config(host, user)
-
     client = paramiko.SSHClient()
     client.load_system_host_keys()
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     try:
+        ssh_cfg = _load_ssh_config(host, user)
         connect_kwargs: dict = {
             "hostname": ssh_cfg.get("hostname", host),
             "username": ssh_cfg.get("username", user),
@@ -120,11 +119,11 @@ def _ssh_interactive(host: str, user: str | None, command: str | None = None) ->
     If *command* is given it is executed in the remote PTY; otherwise an
     interactive login shell is opened.
     """
-    ssh_cfg = _load_ssh_config(host, user)
     client = paramiko.SSHClient()
     client.load_system_host_keys()
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     try:
+        ssh_cfg = _load_ssh_config(host, user)
         connect_kwargs: dict = {
             "hostname": ssh_cfg.get("hostname", host),
             "username": ssh_cfg.get("username", user),

@@ -99,6 +99,16 @@ class TestLoadSshConfig:
             result = _load_ssh_config("devbox", None)
         assert "sock" in result
 
+    def test_proxy_command_none_skipped(self, tmp_path):
+        ssh_dir = tmp_path / ".ssh"
+        ssh_dir.mkdir()
+        (ssh_dir / "config").write_text(
+            "Host devbox\n    ProxyCommand none\n", encoding="utf-8"
+        )
+        with patch("tmux_manager._remote.Path.home", return_value=tmp_path):
+            result = _load_ssh_config("devbox", None)
+        assert "sock" not in result
+
 
 NO_CONFIG = {}  # empty SSH config for tests that don't need alias resolution
 
