@@ -11,10 +11,10 @@ mgr.new_session("work")
 print(mgr.list_sessions())   # ["work"]
 mgr.attach_session("work")
 
-# Remote (via SSH)
-mgr = TmuxManager(host="devbox", user="alice")
-print(mgr.list_sessions())
-mgr.attach_session("main")
+# Remote — persistent connection, cleaned up automatically
+with TmuxManager(host="devbox", user="alice") as mgr:
+    mgr.new_session("work")
+    print(mgr.list_sessions())
 ```
 
 ## Install
@@ -70,7 +70,11 @@ SSH config (ProxyJump, etc.) is respected there too.
 
 ## Notes
 
-- Remote queries use `paramiko` (SSH key auth, no passwords needed)
+- Remote mode opens a single persistent SSH connection at construction time
+  and reuses it for every operation — use as a context manager (`with`)
+  to ensure cleanup
+- If the remote host is unreachable, construction raises immediately
+  (no silent failures)
 - `attach_session` uses the system `ssh` binary for PTY support
 - Remote connections require the host to be in `~/.ssh/known_hosts` (connect once via `ssh` CLI to add it)
 

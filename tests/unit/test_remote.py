@@ -9,7 +9,12 @@ import paramiko
 import pytest
 
 from tmux_manager._remote import (
+    _SSHConnection,
+    _command_available_conn,
+    _kill_session_conn,
+    _list_sessions_conn,
     _load_ssh_config,
+    _new_session_conn,
     _ssh_exec,
     attach_session,
     command_available,
@@ -540,3 +545,227 @@ class TestAttachSession:
             attach_session("devbox", None, "bad'; rm -rf /")
         tmux_cmd = mock_run.call_args[0][0][-1]
         assert tmux_cmd == "tmux attach-session -t 'bad'\"'\"'; rm -rf /'"
+
+
+# ── _SSHConnection tests ─────────────────────────────────────────────────────
+
+NO_SSH_CONFIG = {}
+
+
+def _patch_conn_open(client):
+    """Return patches that let _SSHConnection.__init__ succeed with *client*."""
+    return (
+        patch("tmux_manager._remote._load_ssh_config", return_value=NO_SSH_CONFIG),
+        patch("tmux_manager._remote.paramiko.SSHClient", return_value=client),
+    )
+
+
+class TestSSHConnectionInternal:
+    def test_connect_creates_client_and_connects(self):
+        client = _make_client()
+        with _patch_conn_open(client)[0], _patch_conn_open(client)[1]:
+            conn = _SSHConnection("myhost", "alice")
+        client.connect.assert_called_once()
+        kw = client.connect.call_args.kwargs
+        assert kw["hostname"] == "myhost"
+        assert kw["username"] == "alice"
+        assert kw["port"] == 22
+        assert kw["timeout"] == 5
+        assert kw["look_for_keys"] is True
+        assert kw["allow_agent"] is True
+        conn.close()
+
+    def test_connect_uses_reject_policy(self):
+        client = _make_client()
+        with _patch_conn_open(client)[0], _patch_conn_open(client)[1]:
+            conn = _SSHConnection("host", None)
+        args = client.set_missing_host_key_policy.call_args[0]
+        assert isinstance(args[0], paramiko.RejectPolicy)
+        conn.close()
+
+    def test_connect_loads_ssh_config(self):
+        client = _make_client()
+        with (
+            patch("tmux_manager._remote._load_ssh_config", return_value=NO_SSH_CONFIG) as m_cfg,
+            patch("tmux_manager._remote.paramiko.SSHClient", return_value=client),
+        ):
+            conn = _SSHConnection("devbox", "alice")
+        m_cfg.assert_called_once_with("devbox", "alice")
+        conn.close()
+
+    def test_close_calls_client_close(self):
+        client = _make_client()
+        with _patch_conn_open(client)[0], _patch_conn_open(client)[1]:
+            conn = _SSHConnection("host", None)
+        conn.close()
+        client.close.assert_called_once()
+
+    def test_close_idempotent(self):
+        client = _make_client()
+        with _patch_conn_open(client)[0], _patch_conn_open(client)[1]:
+            conn = _SSHConnection("host", None)
+        conn.close()
+        conn.close()
+        client.close.assert_called_once()
+
+    def test_close_when_no_client(self):
+        client = _make_client()
+        with _patch_conn_open(client)[0], _patch_conn_open(client)[1]:
+            conn = _SSHConnection("host", None)
+        conn._client = None
+        conn.close()
+
+    def test_is_connected_true(self):
+        client = _make_client()
+        transport = MagicMock()
+        transport.is_active.return_value = True
+        client.get_transport.return_value = transport
+        with _patch_conn_open(client)[0], _patch_conn_open(client)[1]:
+            conn = _SSHConnection("host", None)
+        assert conn.is_connected is True
+        conn.close()
+
+    def test_is_connected_false_no_client(self):
+        client = _make_client()
+        with _patch_conn_open(client)[0], _patch_conn_open(client)[1]:
+            conn = _SSHConnection("host", None)
+        conn._client = None
+        assert conn.is_connected is False
+
+    def test_is_connected_false_no_transport(self):
+        client = _make_client()
+        client.get_transport.return_value = None
+        with _patch_conn_open(client)[0], _patch_conn_open(client)[1]:
+            conn = _SSHConnection("host", None)
+        assert conn.is_connected is False
+        conn.close()
+
+    def test_is_connected_false_inactive_transport(self):
+        client = _make_client()
+        transport = MagicMock()
+        transport.is_active.return_value = False
+        client.get_transport.return_value = transport
+        with _patch_conn_open(client)[0], _patch_conn_open(client)[1]:
+            conn = _SSHConnection("host", None)
+        assert conn.is_connected is False
+        conn.close()
+
+    def test_exec_returns_status_and_output(self):
+        client = _make_client(0, b"hello\n")
+        transport = MagicMock()
+        transport.is_active.return_value = True
+        client.get_transport.return_value = transport
+        with _patch_conn_open(client)[0], _patch_conn_open(client)[1]:
+            conn = _SSHConnection("host", None)
+        status, output = conn.exec("echo hello")
+        assert status == 0
+        assert output == "hello\n"
+        conn.close()
+
+    def test_exec_returns_minus_one_when_not_connected(self):
+        client = _make_client()
+        with _patch_conn_open(client)[0], _patch_conn_open(client)[1]:
+            conn = _SSHConnection("host", None)
+        conn._client = None
+        status, output = conn.exec("cmd")
+        assert status == -1
+        assert output == ""
+
+    def test_exec_catches_ssh_exception(self):
+        client = _make_client()
+        transport = MagicMock()
+        transport.is_active.return_value = True
+        client.get_transport.return_value = transport
+        client.exec_command.side_effect = paramiko.SSHException("err")
+        with _patch_conn_open(client)[0], _patch_conn_open(client)[1]:
+            conn = _SSHConnection("host", None)
+        status, output = conn.exec("cmd")
+        assert status == -1
+        assert output == ""
+        conn.close()
+
+    def test_exec_catches_socket_timeout(self):
+        client = _make_client()
+        transport = MagicMock()
+        transport.is_active.return_value = True
+        client.get_transport.return_value = transport
+        client.exec_command.side_effect = socket.timeout()
+        with _patch_conn_open(client)[0], _patch_conn_open(client)[1]:
+            conn = _SSHConnection("host", None)
+        status, output = conn.exec("cmd")
+        assert status == -1
+        assert output == ""
+        conn.close()
+
+    def test_exec_catches_oserror(self):
+        client = _make_client()
+        transport = MagicMock()
+        transport.is_active.return_value = True
+        client.get_transport.return_value = transport
+        client.exec_command.side_effect = OSError("broken")
+        with _patch_conn_open(client)[0], _patch_conn_open(client)[1]:
+            conn = _SSHConnection("host", None)
+        status, output = conn.exec("cmd")
+        assert status == -1
+        assert output == ""
+        conn.close()
+
+    def test_connect_failure_propagates(self):
+        client = MagicMock()
+        client.connect.side_effect = paramiko.SSHException("auth failed")
+        with (
+            patch("tmux_manager._remote._load_ssh_config", return_value=NO_SSH_CONFIG),
+            patch("tmux_manager._remote.paramiko.SSHClient", return_value=client),
+            pytest.raises(paramiko.SSHException, match="auth failed"),
+        ):
+            _SSHConnection("host", None)
+
+
+# ── _*_conn helper tests ─────────────────────────────────────────────────────
+
+
+class TestConnHelpers:
+    def test_list_sessions_conn_returns_names(self):
+        conn = MagicMock()
+        conn.exec.return_value = (0, "main\nwork\n")
+        assert _list_sessions_conn(conn) == ["main", "work"]
+
+    def test_list_sessions_conn_empty_on_failure(self):
+        conn = MagicMock()
+        conn.exec.return_value = (-1, "")
+        assert _list_sessions_conn(conn) == []
+
+    def test_list_sessions_conn_empty_on_empty_output(self):
+        conn = MagicMock()
+        conn.exec.return_value = (0, "")
+        assert _list_sessions_conn(conn) == []
+
+    def test_new_session_conn_success(self):
+        conn = MagicMock()
+        conn.exec.return_value = (0, "")
+        assert _new_session_conn(conn, "work") is True
+
+    def test_new_session_conn_failure(self):
+        conn = MagicMock()
+        conn.exec.return_value = (1, "")
+        assert _new_session_conn(conn, "work") is False
+
+    def test_kill_session_conn_success(self):
+        conn = MagicMock()
+        conn.exec.return_value = (0, "")
+        assert _kill_session_conn(conn, "work") is True
+
+    def test_kill_session_conn_failure(self):
+        conn = MagicMock()
+        conn.exec.return_value = (1, "")
+        assert _kill_session_conn(conn, "work") is False
+
+    def test_command_available_conn_found(self):
+        conn = MagicMock()
+        conn.exec.return_value = (0, "/usr/bin/tmux\n")
+        assert _command_available_conn(conn, "tmux") is True
+
+    def test_command_available_conn_not_found(self):
+        conn = MagicMock()
+        conn.exec.return_value = (1, "")
+        assert _command_available_conn(conn, "tmux") is False

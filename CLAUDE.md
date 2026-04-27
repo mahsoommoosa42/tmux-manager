@@ -71,15 +71,21 @@ LICENSE
 - **Testing:** Mock `subprocess.run()` and `shutil.which()`
 
 ### `tmux_manager/_remote.py`
-- **Core Function:** `_ssh_exec(host, user, command) → (exit_code, stdout_text)`
+- **Core Function:** `_ssh_exec(host, user, command) → (exit_code, stdout_text)` (stateless, kept for backward compatibility)
 - **SSH Config Loading:** `_load_ssh_config(host, user) → dict with hostname/port/user/key`
+- **Persistent Connection:** `_SSHConnection` class (intentionally private, underscore-prefixed)
+  - Opened once in `__init__`, reused for all operations on a `TmuxManager` instance
+  - Uses `paramiko.RejectPolicy()` — will not auto-add unknown host keys
+  - Exposes `exec(command) → (exit_status, stdout_text)`, `close()`, and `is_connected`
+  - Must NOT be exported in `__init__.py` or appear in any public type hint
+- **Connection-aware helpers:** `_list_sessions_conn`, `_new_session_conn`, `_kill_session_conn`, `_command_available_conn` — all take a `_SSHConnection` as first arg
 - **Operations:** Similar to `_local` but via SSH
 - **Key Details:**
   - Uses `paramiko` for command execution (key auth first, password fallback via `getpass`)
   - `_load_ssh_config()` uses `paramiko.SSHConfig` to parse `~/.ssh/config`
   - Handles hostname aliases, custom ports, identity files
   - `attach_session()` delegates to system `ssh` binary (for PTY support)
-- **Testing:** Mock `paramiko.SSHClient`, `_load_ssh_config`, `subprocess.run()`
+- **Testing:** Mock `paramiko.SSHClient`, `_load_ssh_config`, `subprocess.run()`. For `_SSHConnection`, mock at `tmux_manager._remote.paramiko.SSHClient` and `tmux_manager._remote._load_ssh_config`.
 
 ## Testing Strategy
 
@@ -129,13 +135,26 @@ def test_new_session_args(self):
     mock.assert_called_once_with(["tmux", "new-session", "-d", "-s", "my-session"], ...)
 ```
 
-**Pattern 3: Test dispatch to backend**
+**Pattern 3: Test dispatch to backend (remote with persistent connection)**
 ```python
-def test_manager_dispatches_to_remote(self):
-    with patch("tmux_manager.manager._remote.list_sessions", return_value=["s1"]) as m:
-        result = TmuxManager("devbox").list_sessions()
-    m.assert_called_once_with("devbox", None)
+def test_list_sessions_delegates(self):
+    conn = MagicMock()
+    with (
+        patch("tmux_manager.manager._remote._SSHConnection", return_value=conn),
+        patch("tmux_manager.manager._remote._list_sessions_conn", return_value=["s1"]) as m,
+    ):
+        result = TmuxManager("devbox", "alice").list_sessions()
+    m.assert_called_once_with(conn)
     assert result == ["s1"]
+```
+
+**Pattern 4: Mock _SSHConnection for manager tests**
+```python
+# Always mock _SSHConnection when constructing a remote TmuxManager in tests:
+conn = MagicMock()
+with patch("tmux_manager.manager._remote._SSHConnection", return_value=conn):
+    mgr = TmuxManager("devbox")
+# Then mock the private _*_conn helpers for individual operations
 ```
 
 ## SSH Config Integration
@@ -215,6 +234,13 @@ pytest tests/unit/test_manager.py::TestTmuxManagerLocal::test_is_available_true
 - TmuxManager API is small and stable
 - Dispatch is explicit and testable
 - Avoids inheritance complexity
+
+### Why a persistent SSH connection?
+- Avoids opening a new SSH connection for every remote operation
+- `_SSHConnection` is intentionally private (underscore prefix) and never exposed in the public API
+- `TmuxManager` supports context manager (`with`) for deterministic cleanup
+- Construction with an unreachable host raises immediately — no silent failures
+- `attach_session` still uses the system `ssh` binary (for PTY) — it does not go through the persistent connection
 
 ## Known Limitations and Future Work
 
