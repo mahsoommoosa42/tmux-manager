@@ -720,6 +720,32 @@ class TestSSHConnectionInternal:
         ):
             _SSHConnection("host", None)
 
+    def test_connect_failure_closes_client(self):
+        client = MagicMock()
+        client.connect.side_effect = paramiko.SSHException("Incompatible protocol")
+        with (
+            patch("tmux_manager._remote._load_ssh_config", return_value=NO_SSH_CONFIG),
+            patch("tmux_manager._remote.paramiko.SSHClient", return_value=client),
+            pytest.raises(paramiko.SSHException),
+        ):
+            _SSHConnection("host", None)
+        client.close.assert_called_once()
+
+    def test_password_retry_failure_closes_client(self):
+        client = MagicMock()
+        client.connect.side_effect = paramiko.AuthenticationException("denied")
+        mock_stdin = MagicMock()
+        mock_stdin.isatty.return_value = True
+        with (
+            patch("tmux_manager._remote._load_ssh_config", return_value=NO_SSH_CONFIG),
+            patch("tmux_manager._remote.paramiko.SSHClient", return_value=client),
+            patch("tmux_manager._remote.getpass.getpass", return_value="wrong"),
+            patch("tmux_manager._remote.sys.stdin", mock_stdin),
+            pytest.raises(paramiko.AuthenticationException),
+        ):
+            _SSHConnection("host", None)
+        client.close.assert_called_once()
+
     def test_password_fallback_on_auth_failure(self):
         client = _make_client()
         call_count = 0

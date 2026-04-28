@@ -169,23 +169,27 @@ class _SSHConnection:
         client.load_system_host_keys()
         client.set_missing_host_key_policy(paramiko.RejectPolicy())
         try:
-            client.connect(
-                **connect_kw,
-                look_for_keys=True,
-                allow_agent=True,
-            )
-        except paramiko.SSHException as exc:
-            is_auth_failure = isinstance(
-                exc, paramiko.AuthenticationException
-            ) or "no authentication methods" in str(exc).lower()
-            if not is_auth_failure or not (sys.stdin is not None and sys.stdin.isatty()):
-                raise
-            display_host = connect_kw["hostname"]
-            display_user = connect_kw["username"]
-            display_target = f"{display_user}@{display_host}" if display_user else display_host
-            prompt = f"Password for {display_target}: "
-            password = getpass.getpass(prompt)
-            client.connect(**connect_kw, password=password, look_for_keys=False, allow_agent=False)
+            try:
+                client.connect(
+                    **connect_kw,
+                    look_for_keys=True,
+                    allow_agent=True,
+                )
+            except paramiko.SSHException as exc:
+                is_auth_failure = isinstance(
+                    exc, paramiko.AuthenticationException
+                ) or "no authentication methods" in str(exc).lower()
+                if not is_auth_failure or not (sys.stdin is not None and sys.stdin.isatty()):
+                    raise
+                display_host = connect_kw["hostname"]
+                display_user = connect_kw["username"]
+                display_target = f"{display_user}@{display_host}" if display_user else display_host
+                prompt = f"Password for {display_target}: "
+                password = getpass.getpass(prompt)
+                client.connect(**connect_kw, password=password, look_for_keys=False, allow_agent=False)
+        except:
+            client.close()
+            raise
         self._client = client
 
     def close(self) -> None:
