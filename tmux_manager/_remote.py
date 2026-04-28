@@ -256,9 +256,9 @@ def _attach_session_conn(conn: _SSHConnection, name: str) -> None:
         return
     channel = transport.open_session()
     try:
-        rows, cols = os.get_terminal_size()
+        cols, rows = os.get_terminal_size()
     except OSError:
-        rows, cols = 24, 80
+        cols, rows = 80, 24
     channel.get_pty(width=cols, height=rows)
     channel.exec_command(f"tmux attach-session -t {shlex.quote(name)}")
     oldtty = termios.tcgetattr(sys.stdin)

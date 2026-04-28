@@ -1012,7 +1012,7 @@ class TestConnHelpers:
         mock_stdin = MagicMock()
         mock_stdout = MagicMock()
         with (
-            patch("tmux_manager._remote.os.get_terminal_size", return_value=(40, 120)),
+            patch("tmux_manager._remote.os.get_terminal_size", return_value=(120, 40)),
             patch("tmux_manager._remote.termios.tcgetattr", return_value=[]),
             patch("tmux_manager._remote.tty.setraw"),
             patch("tmux_manager._remote.termios.tcsetattr"),
