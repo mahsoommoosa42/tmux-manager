@@ -37,6 +37,7 @@ class TmuxManager:
     def _close(self) -> None:
         if self._conn is not None:
             self._conn.close()
+            self._conn = None
 
     # ── tool availability ─────────────────────────────────────────────
 
