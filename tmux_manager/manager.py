@@ -81,7 +81,11 @@ class TmuxManager:
         return _remote._kill_session_conn(self._require_conn(), name)
 
     def attach_session(self, name: str) -> None:
-        """Attach to *name* (requires a live PTY)."""
+        """Attach to *name* (requires a live PTY).
+
+        Uses the system ``ssh`` binary for remote hosts, so it works
+        independently of the persistent ``_SSHConnection``.
+        """
         if self._host is None:
             _local.attach_session(name)
         else:
