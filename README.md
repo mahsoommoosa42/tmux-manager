@@ -72,6 +72,7 @@ SSH config (ProxyJump, etc.) is respected there too.
 
 - Remote queries use `paramiko` (SSH key auth, no passwords needed)
 - `attach_session` uses the system `ssh` binary for PTY support
+- Remote connections require the host to be in `~/.ssh/known_hosts` (connect once via `ssh` CLI to add it)
 
 ## Development
 

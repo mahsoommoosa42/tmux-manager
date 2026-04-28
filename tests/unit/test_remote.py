@@ -164,6 +164,43 @@ class TestSshExec:
         assert kw["hostname"] == "myhost"
         assert kw["username"] == "alice"
 
+    def test_uses_reject_policy(self):
+        client = _make_client()
+        with (
+            patch("tmux_manager._remote._load_ssh_config", return_value=NO_CONFIG),
+            patch("tmux_manager._remote.paramiko.SSHClient", return_value=client),
+        ):
+            _ssh_exec("host", None, "cmd")
+        client.set_missing_host_key_policy.assert_called_once()
+        policy = client.set_missing_host_key_policy.call_args[0][0]
+        assert isinstance(policy, paramiko.RejectPolicy)
+
+    def test_unknown_host_prints_known_hosts_hint(self, capsys):
+        client = MagicMock()
+        client.connect.side_effect = paramiko.SSHException(
+            "Server 'myhost' not found in known_hosts"
+        )
+        with (
+            patch("tmux_manager._remote._load_ssh_config", return_value=NO_CONFIG),
+            patch("tmux_manager._remote.paramiko.SSHClient", return_value=client),
+        ):
+            status, output = _ssh_exec("myhost", None, "cmd")
+        assert status == -1
+        err = capsys.readouterr().err
+        assert "myhost" in err
+        assert "known_hosts" in err
+
+    def test_other_ssh_exception_no_hint(self, capsys):
+        client = MagicMock()
+        client.connect.side_effect = paramiko.SSHException("auth failed")
+        with (
+            patch("tmux_manager._remote._load_ssh_config", return_value=NO_CONFIG),
+            patch("tmux_manager._remote.paramiko.SSHClient", return_value=client),
+        ):
+            _ssh_exec("host", None, "cmd")
+        err = capsys.readouterr().err
+        assert err == ""
+
     def test_ssh_config_alias_resolves_hostname(self):
         client = _make_client()
         resolved = {"hostname": "192.168.1.10", "username": "alice", "port": 22}
