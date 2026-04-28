@@ -152,20 +152,40 @@ class _SSHConnection:
         return transport is not None and transport.is_active()
 
     def _open(self) -> None:
-        """Open the SSH connection. Called once from __init__."""
+        """Open the SSH connection. Called once from __init__.
+
+        Mirrors the auth logic of ``_ssh_exec``: tries key-based auth first,
+        then falls back to password prompt when stdin is a TTY.
+        """
         ssh_cfg = _load_ssh_config(self._host, self._user)
+        connect_kw = {
+            "hostname": ssh_cfg.get("hostname", self._host),
+            "username": ssh_cfg.get("username", self._user),
+            "port": ssh_cfg.get("port", 22),
+            "key_filename": ssh_cfg.get("key_filename") or None,
+            "timeout": 5,
+        }
         client = paramiko.SSHClient()
         client.load_system_host_keys()
         client.set_missing_host_key_policy(paramiko.RejectPolicy())
-        client.connect(
-            hostname=ssh_cfg.get("hostname", self._host),
-            username=ssh_cfg.get("username", self._user),
-            port=ssh_cfg.get("port", 22),
-            key_filename=ssh_cfg.get("key_filename") or None,
-            timeout=5,
-            look_for_keys=True,
-            allow_agent=True,
-        )
+        try:
+            client.connect(
+                **connect_kw,
+                look_for_keys=True,
+                allow_agent=True,
+            )
+        except paramiko.SSHException as exc:
+            is_auth_failure = isinstance(
+                exc, paramiko.AuthenticationException
+            ) or "no authentication methods" in str(exc).lower()
+            if not is_auth_failure or not (sys.stdin is not None and sys.stdin.isatty()):
+                raise
+            display_host = connect_kw["hostname"]
+            display_user = connect_kw["username"]
+            display_target = f"{display_user}@{display_host}" if display_user else display_host
+            prompt = f"Password for {display_target}: "
+            password = getpass.getpass(prompt)
+            client.connect(**connect_kw, password=password, look_for_keys=False, allow_agent=False)
         self._client = client
 
     def close(self) -> None:
