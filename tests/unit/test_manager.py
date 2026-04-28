@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from tmux_manager import TmuxManager
 
 
@@ -100,6 +102,14 @@ class TestTmuxManagerRemote:
             mgr = TmuxManager("devbox")
         mgr.__del__()
         conn.close.assert_called()
+
+    def test_use_after_close_raises(self):
+        conn = MagicMock()
+        with patch("tmux_manager.manager._remote._SSHConnection", return_value=conn):
+            mgr = TmuxManager("devbox")
+        mgr._close()
+        with pytest.raises(RuntimeError, match="connection is closed"):
+            mgr.list_sessions()
 
     def test_is_available_true(self):
         conn = MagicMock()

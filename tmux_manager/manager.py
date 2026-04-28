@@ -39,6 +39,11 @@ class TmuxManager:
             self._conn.close()
             self._conn = None
 
+    def _require_conn(self) -> _remote._SSHConnection:
+        if self._conn is None:
+            raise RuntimeError("TmuxManager connection is closed")
+        return self._conn
+
     # ── tool availability ─────────────────────────────────────────────
 
     def is_available(self) -> bool:
@@ -49,7 +54,7 @@ class TmuxManager:
         """True if *command* is on PATH on the target machine."""
         if self._host is None:
             return _local.command_available(command)
-        return _remote._command_available_conn(self._conn, command)
+        return _remote._command_available_conn(self._require_conn(), command)
 
     # ── session management ────────────────────────────────────────────
 
@@ -57,7 +62,7 @@ class TmuxManager:
         """Return session names; [] if none exist or the host is unreachable."""
         if self._host is None:
             return _local.list_sessions()
-        return _remote._list_sessions_conn(self._conn)
+        return _remote._list_sessions_conn(self._require_conn())
 
     def has_session(self, name: str) -> bool:
         """True if a session named *name* exists."""
@@ -67,13 +72,13 @@ class TmuxManager:
         """Create a new detached session named *name*. True on success."""
         if self._host is None:
             return _local.new_session(name)
-        return _remote._new_session_conn(self._conn, name)
+        return _remote._new_session_conn(self._require_conn(), name)
 
     def kill_session(self, name: str) -> bool:
         """Kill the session named *name*. True on success."""
         if self._host is None:
             return _local.kill_session(name)
-        return _remote._kill_session_conn(self._conn, name)
+        return _remote._kill_session_conn(self._require_conn(), name)
 
     def attach_session(self, name: str) -> None:
         """Attach to *name* (requires a live PTY)."""

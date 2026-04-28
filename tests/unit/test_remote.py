@@ -731,6 +731,21 @@ class TestSSHConnectionInternal:
             _SSHConnection("host", None)
         client.close.assert_called_once()
 
+    def test_connect_known_hosts_hint(self, capsys):
+        client = MagicMock()
+        client.connect.side_effect = paramiko.SSHException(
+            "Server 'mybox' not found in known_hosts"
+        )
+        with (
+            patch("tmux_manager._remote._load_ssh_config", return_value=NO_SSH_CONFIG),
+            patch("tmux_manager._remote.paramiko.SSHClient", return_value=client),
+            pytest.raises(paramiko.SSHException),
+        ):
+            _SSHConnection("mybox", None)
+        captured = capsys.readouterr()
+        assert "not in ~/.ssh/known_hosts" in captured.err
+        assert "Connect once via 'ssh' CLI" in captured.err
+
     def test_password_retry_failure_closes_client(self):
         client = MagicMock()
         client.connect.side_effect = paramiko.AuthenticationException("denied")

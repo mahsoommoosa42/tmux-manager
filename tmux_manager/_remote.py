@@ -187,8 +187,14 @@ class _SSHConnection:
                 prompt = f"Password for {display_target}: "
                 password = getpass.getpass(prompt)
                 client.connect(**connect_kw, password=password, look_for_keys=False, allow_agent=False)
-        except:
+        except BaseException as exc:
             client.close()
+            if "not found in known_hosts" in str(exc):
+                print(
+                    f"Host '{self._host}' is not in ~/.ssh/known_hosts. "
+                    "Connect once via 'ssh' CLI to add it.",
+                    file=sys.stderr,
+                )
             raise
         self._client = client
 
