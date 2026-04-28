@@ -201,7 +201,10 @@ class TestPasswordAuth:
         assert status == 0
         assert output == "ok\n"
         assert client.connect.call_count == 2
-        assert client.connect.call_args.kwargs["password"] == "secret"
+        retry_kw = client.connect.call_args.kwargs
+        assert retry_kw["password"] == "secret"
+        assert retry_kw["look_for_keys"] is False
+        assert retry_kw["allow_agent"] is False
 
     def test_password_prompt_shows_host_and_user(self):
         client = _make_client(0, b"ok\n")
