@@ -78,7 +78,7 @@ def _ssh_exec(host: str, user: str | None, command: str) -> tuple[int, str]:
             display_target = f"{display_user}@{display_host}" if display_user else display_host
             prompt = f"Password for {display_target}: "
             password = getpass.getpass(prompt)
-            client.connect(**connect_kw, password=password)
+            client.connect(**connect_kw, password=password, look_for_keys=False, allow_agent=False)
         _, stdout, _ = client.exec_command(command)
         exit_status = stdout.channel.recv_exit_status()
         output = stdout.read().decode()
