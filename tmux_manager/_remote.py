@@ -5,6 +5,7 @@ from __future__ import annotations
 import shlex
 import socket
 import subprocess
+import sys
 from pathlib import Path
 
 import paramiko
@@ -65,7 +66,13 @@ def _ssh_exec(host: str, user: str | None, command: str) -> tuple[int, str]:
         exit_status = stdout.channel.recv_exit_status()
         output = stdout.read().decode()
         return exit_status, output
-    except (paramiko.SSHException, socket.timeout, OSError):
+    except (paramiko.SSHException, socket.timeout, OSError) as exc:
+        if "not found in known_hosts" in str(exc):
+            print(
+                f"Host '{host}' is not in ~/.ssh/known_hosts. "
+                "Connect once via 'ssh' CLI to add it.",
+                file=sys.stderr,
+            )
         return -1, ""
     finally:
         client.close()
