@@ -1097,6 +1097,21 @@ class TestConnHelpers:
         mock_restore.assert_called_once()
         channel.close.assert_called_once()
 
+    def test_attach_session_conn_closes_channel_on_early_failure(self):
+        channel = MagicMock()
+        channel.get_pty.side_effect = paramiko.SSHException("pty failed")
+        transport = MagicMock()
+        transport.open_session.return_value = channel
+        conn = MagicMock()
+        conn.is_connected = True
+        conn._client.get_transport.return_value = transport
+        with (
+            patch("tmux_manager._remote.os.get_terminal_size", return_value=(80, 24)),
+            pytest.raises(paramiko.SSHException, match="pty failed"),
+        ):
+            _attach_session_conn(conn, "work")
+        channel.close.assert_called_once()
+
     def test_attach_session_conn_shell_quotes_name(self):
         channel = MagicMock()
         channel.recv.return_value = b""

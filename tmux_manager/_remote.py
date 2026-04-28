@@ -255,14 +255,15 @@ def _attach_session_conn(conn: _SSHConnection, name: str) -> None:
     if transport is None:
         return
     channel = transport.open_session()
+    oldtty = None
     try:
-        cols, rows = os.get_terminal_size()
-    except OSError:
-        cols, rows = 80, 24
-    channel.get_pty(width=cols, height=rows)
-    channel.exec_command(f"tmux attach-session -t {shlex.quote(name)}")
-    oldtty = termios.tcgetattr(sys.stdin)
-    try:
+        try:
+            cols, rows = os.get_terminal_size()
+        except OSError:
+            cols, rows = 80, 24
+        channel.get_pty(width=cols, height=rows)
+        channel.exec_command(f"tmux attach-session -t {shlex.quote(name)}")
+        oldtty = termios.tcgetattr(sys.stdin)
         tty.setraw(sys.stdin.fileno())
         channel.setblocking(0)
         while True:
@@ -279,5 +280,6 @@ def _attach_session_conn(conn: _SSHConnection, name: str) -> None:
                     break
                 channel.send(data)
     finally:
-        termios.tcsetattr(sys.stdin, termios.TCSADRAIN, oldtty)
+        if oldtty is not None:
+            termios.tcsetattr(sys.stdin, termios.TCSADRAIN, oldtty)
         channel.close()
