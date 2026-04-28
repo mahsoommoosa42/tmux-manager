@@ -78,13 +78,13 @@ LICENSE
   - Uses `paramiko.RejectPolicy()` — will not auto-add unknown host keys
   - Exposes `exec(command) → (exit_status, stdout_text)`, `close()`, and `is_connected`
   - Must NOT be exported in `__init__.py` or appear in any public type hint
-- **Connection-aware helpers:** `_list_sessions_conn`, `_new_session_conn`, `_kill_session_conn`, `_command_available_conn` — all take a `_SSHConnection` as first arg
+- **Connection-aware helpers:** `_list_sessions_conn`, `_new_session_conn`, `_kill_session_conn`, `_command_available_conn`, `_attach_session_conn` — all take a `_SSHConnection` as first arg
 - **Operations:** Similar to `_local` but via SSH
 - **Key Details:**
   - Uses `paramiko` for command execution (key auth first, password fallback via `getpass`)
   - `_load_ssh_config()` uses `paramiko.SSHConfig` to parse `~/.ssh/config`
   - Handles hostname aliases, custom ports, identity files
-  - `attach_session()` delegates to system `ssh` binary (for PTY support)
+  - `_attach_session_conn()` uses a paramiko channel with PTY for interactive attach over the persistent connection
 - **Testing:** Mock `paramiko.SSHClient`, `_load_ssh_config`, `subprocess.run()`. For `_SSHConnection`, mock at `tmux_manager._remote.paramiko.SSHClient` and `tmux_manager._remote._load_ssh_config`.
 
 ## Testing Strategy
@@ -220,10 +220,11 @@ pytest tests/unit/test_manager.py::TestTmuxManagerLocal::test_is_available_true
 
 ## Design Decisions
 
-### Why paramiko for queries, ssh CLI for attach?
-- Paramiko is lightweight and supports both key and password auth
-- System `ssh` binary respects full SSH config (ProxyJump, etc.) and provides PTY
-- Mixing both is the best tradeoff between simplicity and functionality
+### Why paramiko for everything?
+- Single persistent SSH connection for all operations (queries and attach)
+- `attach_session` uses a paramiko channel with PTY allocation and raw terminal I/O forwarding
+- Avoids re-authentication for interactive sessions on password-auth hosts
+- Stateless `_ssh_exec` and `attach_session` (system `ssh`) kept in `_remote.py` for backward compatibility
 
 ### Why synchronous API?
 - Simplicity: no event loops or asyncio complexity
@@ -240,7 +241,7 @@ pytest tests/unit/test_manager.py::TestTmuxManagerLocal::test_is_available_true
 - `_SSHConnection` is intentionally private (underscore prefix) and never exposed in the public API
 - `TmuxManager` supports context manager (`with`) for deterministic cleanup
 - Construction with an unreachable host raises immediately — no silent failures
-- `attach_session` still uses the system `ssh` binary (for PTY) — it does not go through the persistent connection
+- All operations including `attach_session` use the persistent connection — no separate `ssh` subprocess needed
 
 ## Known Limitations and Future Work
 

@@ -175,14 +175,14 @@ class TestTmuxManagerRemote:
         m.assert_called_once_with(conn, "work")
         assert result is False
 
-    def test_attach_uses_system_ssh(self):
+    def test_attach_session_delegates(self):
         conn = MagicMock()
         with (
             patch("tmux_manager.manager._remote._SSHConnection", return_value=conn),
-            patch("tmux_manager.manager._remote.attach_session") as m,
+            patch("tmux_manager.manager._remote._attach_session_conn") as m,
         ):
             TmuxManager("devbox", "alice").attach_session("main")
-        m.assert_called_once_with("devbox", "alice", "main")
+        m.assert_called_once_with(conn, "main")
 
     def test_no_user_passes_none(self):
         conn = MagicMock()

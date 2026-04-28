@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 import getpass
+import os
+import select
 import shlex
 import socket
 import subprocess
 import sys
+import termios
+import tty
 from pathlib import Path
 
 import paramiko
@@ -241,3 +245,39 @@ def _kill_session_conn(conn: _SSHConnection, name: str) -> bool:
 def _command_available_conn(conn: _SSHConnection, cmd: str) -> bool:
     exit_status, _ = conn.exec(f"command -v {shlex.quote(cmd)}")
     return exit_status == 0
+
+
+def _attach_session_conn(conn: _SSHConnection, name: str) -> None:
+    """Attach to a tmux session over the persistent SSH connection with PTY."""
+    if not conn.is_connected:
+        return
+    transport = conn._client.get_transport()
+    if transport is None:
+        return
+    channel = transport.open_session()
+    try:
+        rows, cols = os.get_terminal_size()
+    except OSError:
+        rows, cols = 24, 80
+    channel.get_pty(width=cols, height=rows)
+    channel.exec_command(f"tmux attach-session -t {shlex.quote(name)}")
+    oldtty = termios.tcgetattr(sys.stdin)
+    try:
+        tty.setraw(sys.stdin.fileno())
+        channel.setblocking(0)
+        while True:
+            r, _, _ = select.select([channel, sys.stdin], [], [])
+            if channel in r:
+                data = channel.recv(1024)
+                if len(data) == 0:
+                    break
+                sys.stdout.buffer.write(data)
+                sys.stdout.buffer.flush()
+            if sys.stdin in r:
+                data = os.read(sys.stdin.fileno(), 1024)
+                if len(data) == 0:
+                    break
+                channel.send(data)
+    finally:
+        termios.tcsetattr(sys.stdin, termios.TCSADRAIN, oldtty)
+        channel.close()
