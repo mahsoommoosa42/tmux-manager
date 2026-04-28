@@ -214,6 +214,170 @@ class TestSshExec:
         assert kw["username"] == "alice"
 
 
+class TestPasswordAuth:
+    def test_password_fallback_on_auth_failure(self):
+        client = _make_client(0, b"ok\n")
+        call_count = 0
+
+        def connect_side_effect(**kw):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1 and "password" not in kw:
+                raise paramiko.AuthenticationException("key auth failed")
+
+        client.connect.side_effect = connect_side_effect
+        mock_stdin = MagicMock()
+        mock_stdin.isatty.return_value = True
+        with (
+            patch("tmux_manager._remote._load_ssh_config", return_value=NO_CONFIG),
+            patch("tmux_manager._remote.paramiko.SSHClient", return_value=client),
+            patch("tmux_manager._remote.getpass.getpass", return_value="secret"),
+            patch("tmux_manager._remote.sys.stdin", mock_stdin),
+        ):
+            status, output = _ssh_exec("host", "alice", "cmd")
+        assert status == 0
+        assert output == "ok\n"
+        assert client.connect.call_count == 2
+        retry_kw = client.connect.call_args.kwargs
+        assert retry_kw["password"] == "secret"
+        assert retry_kw["look_for_keys"] is False
+        assert retry_kw["allow_agent"] is False
+
+    def test_password_prompt_shows_host_and_user(self):
+        client = _make_client(0, b"ok\n")
+        call_count = 0
+
+        def connect_side_effect(**kw):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1 and "password" not in kw:
+                raise paramiko.AuthenticationException("key auth failed")
+
+        client.connect.side_effect = connect_side_effect
+        mock_stdin = MagicMock()
+        mock_stdin.isatty.return_value = True
+        with (
+            patch("tmux_manager._remote._load_ssh_config", return_value=NO_CONFIG),
+            patch("tmux_manager._remote.paramiko.SSHClient", return_value=client),
+            patch("tmux_manager._remote.getpass.getpass", return_value="pw") as mock_gp,
+            patch("tmux_manager._remote.sys.stdin", mock_stdin),
+        ):
+            _ssh_exec("myhost", "bob", "cmd")
+        mock_gp.assert_called_once_with("Password for bob@myhost: ")
+
+    def test_password_prompt_with_no_user(self):
+        client = _make_client(0, b"ok\n")
+        call_count = 0
+
+        def connect_side_effect(**kw):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1 and "password" not in kw:
+                raise paramiko.AuthenticationException("key auth failed")
+
+        client.connect.side_effect = connect_side_effect
+        mock_stdin = MagicMock()
+        mock_stdin.isatty.return_value = True
+        with (
+            patch("tmux_manager._remote._load_ssh_config", return_value=NO_CONFIG),
+            patch("tmux_manager._remote.paramiko.SSHClient", return_value=client),
+            patch("tmux_manager._remote.getpass.getpass", return_value="pw") as mock_gp,
+            patch("tmux_manager._remote.sys.stdin", mock_stdin),
+        ):
+            _ssh_exec("myhost", None, "cmd")
+        mock_gp.assert_called_once_with("Password for myhost: ")
+
+    def test_password_auth_also_fails_returns_minus_one(self):
+        client = MagicMock()
+        client.connect.side_effect = paramiko.AuthenticationException("denied")
+        mock_stdin = MagicMock()
+        mock_stdin.isatty.return_value = True
+        with (
+            patch("tmux_manager._remote._load_ssh_config", return_value=NO_CONFIG),
+            patch("tmux_manager._remote.paramiko.SSHClient", return_value=client),
+            patch("tmux_manager._remote.getpass.getpass", return_value="wrong"),
+            patch("tmux_manager._remote.sys.stdin", mock_stdin),
+        ):
+            status, output = _ssh_exec("host", None, "cmd")
+        assert status == -1
+        assert output == ""
+
+    def test_no_prompt_when_not_tty(self):
+        client = MagicMock()
+        client.connect.side_effect = paramiko.AuthenticationException("denied")
+        mock_stdin = MagicMock()
+        mock_stdin.isatty.return_value = False
+        with (
+            patch("tmux_manager._remote._load_ssh_config", return_value=NO_CONFIG),
+            patch("tmux_manager._remote.paramiko.SSHClient", return_value=client),
+            patch("tmux_manager._remote.sys.stdin", mock_stdin),
+        ):
+            status, output = _ssh_exec("host", None, "cmd")
+        assert status == -1
+        assert output == ""
+
+    def test_no_prompt_when_stdin_is_none(self):
+        client = MagicMock()
+        client.connect.side_effect = paramiko.AuthenticationException("denied")
+        with (
+            patch("tmux_manager._remote._load_ssh_config", return_value=NO_CONFIG),
+            patch("tmux_manager._remote.paramiko.SSHClient", return_value=client),
+            patch("tmux_manager._remote.sys.stdin", None),
+        ):
+            status, output = _ssh_exec("host", None, "cmd")
+        assert status == -1
+        assert output == ""
+
+    def test_no_auth_methods_prompts_for_password(self):
+        client = _make_client(0, b"ok\n")
+        call_count = 0
+
+        def connect_side_effect(**kw):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1 and "password" not in kw:
+                raise paramiko.SSHException("No authentication methods available")
+
+        client.connect.side_effect = connect_side_effect
+        mock_stdin = MagicMock()
+        mock_stdin.isatty.return_value = True
+        with (
+            patch("tmux_manager._remote._load_ssh_config", return_value=NO_CONFIG),
+            patch("tmux_manager._remote.paramiko.SSHClient", return_value=client),
+            patch("tmux_manager._remote.getpass.getpass", return_value="pw"),
+            patch("tmux_manager._remote.sys.stdin", mock_stdin),
+        ):
+            status, output = _ssh_exec("host", "user", "cmd")
+        assert status == 0
+        assert output == "ok\n"
+
+    def test_no_auth_methods_no_prompt_when_not_tty(self):
+        client = MagicMock()
+        client.connect.side_effect = paramiko.SSHException(
+            "No authentication methods available"
+        )
+        mock_stdin = MagicMock()
+        mock_stdin.isatty.return_value = False
+        with (
+            patch("tmux_manager._remote._load_ssh_config", return_value=NO_CONFIG),
+            patch("tmux_manager._remote.paramiko.SSHClient", return_value=client),
+            patch("tmux_manager._remote.sys.stdin", mock_stdin),
+        ):
+            status, output = _ssh_exec("host", None, "cmd")
+        assert status == -1
+        assert output == ""
+
+    def test_non_auth_ssh_exception_not_caught(self):
+        client = MagicMock()
+        client.connect.side_effect = paramiko.SSHException("Incompatible protocol")
+        with (
+            patch("tmux_manager._remote._load_ssh_config", return_value=NO_CONFIG),
+            patch("tmux_manager._remote.paramiko.SSHClient", return_value=client),
+        ):
+            status, output = _ssh_exec("host", None, "cmd")
+        assert status == -1
+        assert output == ""
+
 class TestCommandAvailable:
     def test_found(self):
         with patch("tmux_manager._remote._ssh_exec", return_value=(0, "")):

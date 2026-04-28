@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import getpass
 import shlex
 import socket
 import subprocess
@@ -9,7 +10,6 @@ import sys
 from pathlib import Path
 
 import paramiko
-
 
 def _load_ssh_config(host: str, user: str | None) -> dict:
     """Read ~/.ssh/config and resolve connect kwargs for *host*.
@@ -44,24 +44,41 @@ def _ssh_exec(host: str, user: str | None, command: str) -> tuple[int, str]:
     """Execute *command* on *host* via paramiko; return (exit_status, stdout).
 
     Reads ~/.ssh/config so SSH aliases, custom ports, and identity files
-    are respected automatically.
+    are respected automatically.  If key-based auth fails and stdin is a
+    TTY, falls back to password authentication (prompted every time).
     Returns (-1, "") on any connection, auth, or network failure.
     """
     ssh_cfg = _load_ssh_config(host, user)
+    connect_kw = {
+        "hostname": ssh_cfg.get("hostname", host),
+        "username": ssh_cfg.get("username", user),
+        "port": ssh_cfg.get("port", 22),
+        "key_filename": ssh_cfg.get("key_filename") or None,
+        "timeout": 5,
+    }
 
     client = paramiko.SSHClient()
     client.load_system_host_keys()
     client.set_missing_host_key_policy(paramiko.RejectPolicy())
     try:
-        client.connect(
-            hostname=ssh_cfg.get("hostname", host),
-            username=ssh_cfg.get("username", user),
-            port=ssh_cfg.get("port", 22),
-            key_filename=ssh_cfg.get("key_filename") or None,
-            timeout=5,
-            look_for_keys=True,
-            allow_agent=True,
-        )
+        try:
+            client.connect(
+                **connect_kw,
+                look_for_keys=True,
+                allow_agent=True,
+            )
+        except paramiko.SSHException as exc:
+            is_auth_failure = isinstance(
+                exc, paramiko.AuthenticationException
+            ) or "no authentication methods" in str(exc).lower()
+            if not is_auth_failure or not (sys.stdin is not None and sys.stdin.isatty()):
+                raise
+            display_host = connect_kw["hostname"]
+            display_user = connect_kw["username"]
+            display_target = f"{display_user}@{display_host}" if display_user else display_host
+            prompt = f"Password for {display_target}: "
+            password = getpass.getpass(prompt)
+            client.connect(**connect_kw, password=password, look_for_keys=False, allow_agent=False)
         _, stdout, _ = client.exec_command(command)
         exit_status = stdout.channel.recv_exit_status()
         output = stdout.read().decode()
