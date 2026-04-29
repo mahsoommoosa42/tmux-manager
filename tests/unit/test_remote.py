@@ -6,9 +6,11 @@ from unittest.mock import MagicMock, patch
 
 from tmux_manager._remote import (
     _attach_session,
+    _close_mux,
     _command_available,
     _kill_session,
     _list_sessions,
+    _mux_args,
     _new_session,
     _ssh_exec,
     _ssh_target,
@@ -24,6 +26,25 @@ class TestSshTarget:
 
     def test_without_user(self):
         assert _ssh_target("devbox", None) == "devbox"
+
+
+# ── _mux_args ────────────────────────────────────────────────────────────────
+
+
+class TestMuxArgs:
+    def test_returns_options_with_control_path(self):
+        args = _mux_args("/tmp/ctrl")
+        assert "-o" in args
+        assert "ControlPath=/tmp/ctrl" in args
+        assert "ControlMaster=auto" in args
+        assert "ControlPersist=120" in args
+
+    def test_returns_empty_when_none(self):
+        assert _mux_args(None) == []
+
+    def test_returns_empty_on_win32(self):
+        with patch("tmux_manager._remote.sys.platform", "win32"):
+            assert _mux_args("/tmp/ctrl") == []
 
 
 # ── _ssh_exec ────────────────────────────────────────────────────────────────
@@ -59,6 +80,14 @@ class TestSshExec:
         assert status == -1
         assert output == ""
 
+    def test_passes_mux_args(self):
+        mock_result = MagicMock(returncode=0, stdout="")
+        with patch("tmux_manager._remote.subprocess.run", return_value=mock_result) as m:
+            _ssh_exec("devbox", None, "cmd", control_path="/tmp/ctrl")
+        cmd = m.call_args[0][0]
+        assert "-o" in cmd
+        assert "ControlPath=/tmp/ctrl" in cmd
+
 
 # ── helper functions ─────────────────────────────────────────────────────────
 
@@ -80,6 +109,11 @@ class TestListSessions:
         with patch("tmux_manager._remote._ssh_exec", return_value=(0, "main\n\nwork\n")):
             assert _list_sessions("devbox", None) == ["main", "work"]
 
+    def test_passes_control_path(self):
+        with patch("tmux_manager._remote._ssh_exec", return_value=(0, "")) as m:
+            _list_sessions("h", None, control_path="/tmp/c")
+        assert m.call_args[1]["control_path"] == "/tmp/c"
+
 
 class TestNewSession:
     def test_success(self):
@@ -91,6 +125,11 @@ class TestNewSession:
     def test_failure(self):
         with patch("tmux_manager._remote._ssh_exec", return_value=(1, "")):
             assert _new_session("devbox", None, "work") is False
+
+    def test_passes_control_path(self):
+        with patch("tmux_manager._remote._ssh_exec", return_value=(0, "")) as m:
+            _new_session("h", None, "s", control_path="/tmp/c")
+        assert m.call_args[1]["control_path"] == "/tmp/c"
 
 
 class TestKillSession:
@@ -104,6 +143,11 @@ class TestKillSession:
         with patch("tmux_manager._remote._ssh_exec", return_value=(1, "")):
             assert _kill_session("devbox", None, "work") is False
 
+    def test_passes_control_path(self):
+        with patch("tmux_manager._remote._ssh_exec", return_value=(0, "")) as m:
+            _kill_session("h", None, "s", control_path="/tmp/c")
+        assert m.call_args[1]["control_path"] == "/tmp/c"
+
 
 class TestCommandAvailable:
     def test_found(self):
@@ -113,6 +157,11 @@ class TestCommandAvailable:
     def test_not_found(self):
         with patch("tmux_manager._remote._ssh_exec", return_value=(1, "")):
             assert _command_available("devbox", None, "tmux") is False
+
+    def test_passes_control_path(self):
+        with patch("tmux_manager._remote._ssh_exec", return_value=(0, "")) as m:
+            _command_available("h", None, "c", control_path="/tmp/c")
+        assert m.call_args[1]["control_path"] == "/tmp/c"
 
 
 class TestAttachSession:
@@ -133,5 +182,45 @@ class TestAttachSession:
     def test_shell_quotes_name(self):
         with patch("tmux_manager._remote.subprocess.run") as mock_run:
             _attach_session("devbox", None, "bad'; rm -rf /")
-        cmd = mock_run.call_args[0][0][3]
-        assert cmd == "tmux attach-session -t 'bad'\"'\"'; rm -rf /'"
+        cmd = mock_run.call_args[0][0]
+        assert cmd[-1] == "tmux attach-session -t 'bad'\"'\"'; rm -rf /'"
+
+    def test_passes_mux_args(self):
+        with patch("tmux_manager._remote.subprocess.run") as mock_run:
+            _attach_session("devbox", None, "s", control_path="/tmp/c")
+        cmd = mock_run.call_args[0][0]
+        assert "ControlPath=/tmp/c" in cmd
+
+
+# ── _close_mux ───────────────────────────────────────────────────────────────
+
+
+class TestCloseMux:
+    def test_sends_exit(self):
+        with patch("tmux_manager._remote.subprocess.run") as m:
+            _close_mux("devbox", "alice", "/tmp/ctrl")
+        cmd = m.call_args[0][0]
+        assert cmd[:2] == ["ssh", "-O"]
+        assert "exit" in cmd
+        assert "ControlPath=/tmp/ctrl" in cmd
+
+    def test_noop_on_win32(self):
+        with (
+            patch("tmux_manager._remote.sys.platform", "win32"),
+            patch("tmux_manager._remote.subprocess.run") as m,
+        ):
+            _close_mux("devbox", None, "/tmp/ctrl")
+        m.assert_not_called()
+
+    def test_ignores_oserror(self):
+        with patch("tmux_manager._remote.subprocess.run", side_effect=OSError):
+            _close_mux("devbox", None, "/tmp/ctrl")
+
+    def test_ignores_timeout(self):
+        import subprocess
+
+        with patch(
+            "tmux_manager._remote.subprocess.run",
+            side_effect=subprocess.TimeoutExpired("ssh", 5),
+        ):
+            _close_mux("devbox", None, "/tmp/ctrl")

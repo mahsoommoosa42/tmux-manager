@@ -58,7 +58,8 @@ LICENSE
   - `new_session(name)` → create detached session
   - `kill_session(name)` → kill session
   - `attach_session(name)` → attach (requires PTY)
-- **Context Manager:** Supported (`with TmuxManager(...) as mgr:`) but no-op since there is no persistent connection to clean up
+- **`close()`** — tears down SSH ControlMaster and removes temp dir. Called by `__exit__` and `__del__`
+- **Context Manager:** Supported (`with TmuxManager(...) as mgr:`). Calls `close()` on exit to clean up SSH multiplexing
 - **Testing:** Mock `_local` or `_remote` functions; verify dispatch logic
 
 ### `tmux_manager/_local.py`
@@ -72,11 +73,14 @@ LICENSE
 
 ### `tmux_manager/_remote.py`
 - **`_ssh_target(host, user)`** — builds `user@host` or `host` string
-- **`_ssh_exec(host, user, command)`** — runs `ssh target command` via subprocess, returns `(exit_status, stdout)`. Returns `(-1, "")` on `OSError`
-- **Helper functions:** `_list_sessions`, `_new_session`, `_kill_session`, `_command_available` — all take `host` and `user`, delegate to `_ssh_exec`
-- **`_attach_session(host, user, name)`** — uses `ssh -t` for interactive PTY attach
+- **`_mux_args(control_path)`** — returns ControlMaster SSH options (empty on Windows)
+- **`_ssh_exec(host, user, command, *, control_path=None)`** — runs `ssh target command` via subprocess, returns `(exit_status, stdout)`. Returns `(-1, "")` on `OSError`
+- **Helper functions:** `_list_sessions`, `_new_session`, `_kill_session`, `_command_available` — all take `host`, `user`, and `control_path` kwarg, delegate to `_ssh_exec`
+- **`_attach_session(host, user, name, *, control_path=None)`** — uses `ssh -t` for interactive PTY attach
+- **`_close_mux(host, user, control_path)`** — sends `ssh -O exit` to tear down ControlMaster (no-op on Windows)
 - **Key Details:**
   - System `ssh` handles config resolution, host key verification, and authentication natively
+  - SSH ControlMaster multiplexing reuses connections on Linux/macOS (skipped on Windows)
   - No Python-level SSH config parsing needed
   - Cross-platform (works on Windows, macOS, Linux)
 - **Testing:** Mock `subprocess.run` or `_ssh_exec`
@@ -188,7 +192,7 @@ pytest tests/unit/test_manager.py::TestTmuxManagerLocal::test_is_available_true
 ## Known Limitations and Future Work
 
 **Current Limitations:**
-- No persistent connection (each operation spawns a new ssh process)
+- SSH ControlMaster multiplexing only works on Linux/macOS; Windows users get a fresh ssh process per operation
 - No session information beyond names (id, creation time, etc.)
 - No support for reading tmux config files
 - SSH must be installed and configured on the system
