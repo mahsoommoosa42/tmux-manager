@@ -11,8 +11,9 @@ mgr.new_session("work")
 print(mgr.list_sessions())   # ["work"]
 mgr.attach_session("work")
 
-# Remote — persistent connection, cleaned up automatically
+# Remote — validates connectivity, warms up ControlMaster
 with TmuxManager(host="devbox", user="alice") as mgr:
+    mgr.connect()  # raises ConnectionError if unreachable
     mgr.new_session("work")
     print(mgr.list_sessions())
 ```
@@ -37,6 +38,8 @@ TmuxManager(host=None, user=None)
 
 | Method | Description |
 |---|---|
+| `connect()` | Validate SSH connectivity; warms up ControlMaster (Linux/macOS). Raises `ConnectionError` on failure. Returns `self` for chaining |
+| `close()` | Tear down SSH multiplexing and clean up temp dir. Called automatically by `__exit__` and `__del__` |
 | `is_available()` | True if tmux is installed on the target |
 | `command_available(cmd)` | True if *cmd* is on PATH on the target |
 | `list_sessions()` | Return list of session names |
@@ -47,8 +50,8 @@ TmuxManager(host=None, user=None)
 
 ## SSH aliases
 
-Remote operations read `~/.ssh/config` automatically, so any alias
-you have defined works without extra configuration:
+Remote operations use the system `ssh` command, which reads `~/.ssh/config`
+automatically. Any alias you have defined works without extra configuration:
 
 ```
 # ~/.ssh/config
@@ -65,18 +68,36 @@ mgr = TmuxManager("devbox")
 print(mgr.list_sessions())
 ```
 
-`attach_session` uses a paramiko channel with PTY allocation over the
-persistent connection — no separate `ssh` subprocess is spawned.
+## Connection multiplexing
+
+On **Linux/macOS**, SSH ControlMaster multiplexing is used automatically.
+The first SSH call authenticates (e.g. password prompt), and subsequent
+calls reuse the connection — no extra password prompts. Call `connect()`
+to warm up the master connection upfront:
+
+```python
+mgr = TmuxManager("devbox", "alice").connect()
+mgr.list_sessions()    # reuses connection — no password prompt
+mgr.is_available()     # reuses connection — no password prompt
+```
+
+On **Windows**, ControlMaster is not supported by Win32-OpenSSH.
+Each operation spawns an independent `ssh` process, so password auth
+will prompt once per call. **Use SSH key-based authentication to avoid
+repeated prompts:**
+
+```
+# ~/.ssh/config
+Host devbox
+    IdentityFile ~/.ssh/id_ed25519
+```
 
 ## Notes
 
-- Remote mode opens a single persistent SSH connection at construction time
-  and reuses it for every operation — use as a context manager (`with`)
-  to ensure cleanup
-- If the remote host is unreachable, construction raises immediately
-  (no silent failures)
-- `attach_session` uses a paramiko PTY channel over the persistent connection
-- Remote connections require the host to be in `~/.ssh/known_hosts` (connect once via `ssh` CLI to add it)
+- All remote operations delegate to the system `ssh` command (zero runtime dependencies)
+- Use as a context manager (`with`) to clean up ControlMaster sockets
+- `connect()` validates SSH connectivity upfront and raises `ConnectionError` on failure
+- `attach_session` uses `ssh -t` for interactive PTY attachment
 
 ## Development
 
@@ -119,7 +140,7 @@ See [CLAUDE.md](CLAUDE.md) for detailed architecture, module documentation, test
 - All new code must have 100% branch test coverage
 - Follow existing code style (see CLAUDE.md for patterns)
 - Update README.md if adding new features
-- No external dependencies beyond `paramiko`
+- No external runtime dependencies (zero-dep library)
 
 ## License
 
