@@ -6,6 +6,7 @@ import getpass
 import os
 import shlex
 import socket
+import subprocess
 import sys
 from pathlib import Path
 
@@ -163,6 +164,22 @@ def _attach_session_conn(conn: _SSHConnection, name: str) -> None:
     if transport is None:
         return
 
+    if sys.platform == "win32":
+        _attach_session_subprocess(conn, name)
+    else:
+        _attach_session_pty(transport, name)
+
+
+def _attach_session_subprocess(conn: _SSHConnection, name: str) -> None:
+    """Attach via system ssh on Windows (termios/tty unavailable)."""
+    target = f"{conn._user}@{conn._host}" if conn._user else conn._host
+    subprocess.run(
+        ["ssh", "-t", target, f"tmux attach-session -t {shlex.quote(name)}"]
+    )
+
+
+def _attach_session_pty(transport, name: str) -> None:
+    """Attach via paramiko PTY with raw terminal I/O (Unix)."""
     import select
     import termios
     import tty

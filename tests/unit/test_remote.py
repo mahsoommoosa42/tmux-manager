@@ -673,3 +673,44 @@ class TestConnHelpers:
             _attach_session_conn(conn, "bad'; rm -rf /")
         cmd = channel.exec_command.call_args[0][0]
         assert cmd == "tmux attach-session -t 'bad'\"'\"'; rm -rf /'"
+
+    def test_attach_session_conn_windows_uses_subprocess(self):
+        conn = MagicMock()
+        conn.is_connected = True
+        conn._host = "devbox"
+        conn._user = "alice"
+        with (
+            patch("sys.platform", "win32"),
+            patch("tmux_manager._remote.subprocess.run") as mock_run,
+        ):
+            _attach_session_conn(conn, "work")
+        mock_run.assert_called_once_with(
+            ["ssh", "-t", "alice@devbox", "tmux attach-session -t work"]
+        )
+
+    def test_attach_session_conn_windows_no_user(self):
+        conn = MagicMock()
+        conn.is_connected = True
+        conn._host = "devbox"
+        conn._user = None
+        with (
+            patch("sys.platform", "win32"),
+            patch("tmux_manager._remote.subprocess.run") as mock_run,
+        ):
+            _attach_session_conn(conn, "work")
+        mock_run.assert_called_once_with(
+            ["ssh", "-t", "devbox", "tmux attach-session -t work"]
+        )
+
+    def test_attach_session_conn_windows_shell_quotes_name(self):
+        conn = MagicMock()
+        conn.is_connected = True
+        conn._host = "devbox"
+        conn._user = None
+        with (
+            patch("sys.platform", "win32"),
+            patch("tmux_manager._remote.subprocess.run") as mock_run,
+        ):
+            _attach_session_conn(conn, "bad'; rm -rf /")
+        cmd = mock_run.call_args[0][0][3]
+        assert cmd == "tmux attach-session -t 'bad'\"'\"'; rm -rf /'"
