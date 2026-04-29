@@ -26,7 +26,7 @@ This keeps concerns separated and makes testing straightforward (mock the backen
 
 ```
 tmux_manager/
-├── __init__.py           # Public API exports (TmuxManager, __version__)
+├── __init__.py           # Public API exports (TmuxManager)
 ├── manager.py            # TmuxManager class - dispatcher
 ├── _local.py             # Local operations via subprocess
 ├── _remote.py            # Remote operations via paramiko
