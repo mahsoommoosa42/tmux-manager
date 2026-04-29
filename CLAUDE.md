@@ -230,6 +230,7 @@ platform-agnostic.
 **Current Limitations:**
 - SSH ControlMaster multiplexing only works on Linux/macOS (see Windows section above)
 - Each remote operation spawns a fresh `ssh` process (mitigated by ControlMaster on Linux/macOS)
+- No connect timeout enforced by the library — SSH uses its own default (~60s). Users who need faster failure should set `ConnectTimeout` in `~/.ssh/config`
 - No session information beyond names (id, creation time, etc.)
 - No support for reading tmux config files
 - SSH must be installed and configured on the system
