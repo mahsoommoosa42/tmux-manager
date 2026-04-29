@@ -31,15 +31,17 @@ tmux_manager/
 ├── _local.py             # Local operations via subprocess
 ├── _remote.py            # Remote operations via system ssh
 tests/
+├── __init__.py
+├── conftest.py            # Shared test configuration
 ├── unit/
+│   ├── __init__.py
 │   ├── test_manager.py    # Tests local/remote dispatch
 │   ├── test_local.py      # Tests subprocess operations
-│   ├── test_remote.py     # Tests SSH operations
-│   └── __init__.py
+│   └── test_remote.py     # Tests SSH operations
 ├── functional/
+│   ├── __init__.py
 │   ├── test_local_flow.py  # End-to-end local tests
-│   ├── test_remote_flow.py # End-to-end remote tests
-│   └── __init__.py
+│   └── test_remote_flow.py # End-to-end remote tests
 pyproject.toml
 README.md
 LICENSE
@@ -67,7 +69,7 @@ LICENSE
 - **Implementation:** `shutil.which()` + `subprocess.run()`
 - **Key Details:**
   - `list_sessions()` returns `[]` if tmux not running (returncode != 0)
-  - `attach_session()` replaces Python process with `tmux`
+  - `attach_session()` runs `tmux attach-session` as a child process via `subprocess.run()`
   - No error handling beyond return codes
 - **Testing:** Mock `subprocess.run()` and `shutil.which()`
 
@@ -127,12 +129,15 @@ def test_list_sessions_returns_names(self):
         assert _list_sessions("devbox", "alice") == ["main", "work"]
 ```
 
-**Pattern 3: Test dispatch to remote backend**
+**Pattern 3: Test dispatch to remote backend (with control_path)**
 ```python
 def test_list_sessions_delegates(self):
     with patch("tmux_manager.manager._remote._list_sessions", return_value=["s1"]) as m:
-        result = TmuxManager("devbox", "alice").list_sessions()
-    m.assert_called_once_with("devbox", "alice")
+        mgr = TmuxManager("devbox", "alice")
+        result = mgr.list_sessions()
+    m.assert_called_once_with(
+        "devbox", "alice", control_path=mgr._control_path,
+    )
     assert result == ["s1"]
 ```
 
@@ -169,7 +174,7 @@ pytest tests/unit/test_manager.py::TestTmuxManagerLocal::test_is_available_true
 
 **Python Version:** 3.12 only
 
-**File Encoding:** UTF-8 (explicitly specified in code)
+**File Encoding:** UTF-8 (Python 3 default)
 
 ## Design Decisions
 
