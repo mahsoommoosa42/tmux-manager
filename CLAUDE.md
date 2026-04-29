@@ -196,10 +196,40 @@ pytest tests/unit/test_manager.py::TestTmuxManagerLocal::test_is_available_true
 - Dispatch is explicit and testable
 - Avoids inheritance complexity
 
+## Windows Platform Restrictions
+
+Windows is supported but has important behavioral differences due to
+Win32-OpenSSH limitations:
+
+| Feature | Linux / macOS | Windows |
+|---|---|---|
+| SSH ControlMaster multiplexing | ✔ — single auth, connection reused | ✘ — not supported by Win32-OpenSSH |
+| Password prompts per operation | 1 (first call authenticates, rest reuse) | 1 per `_ssh_exec` call |
+| `connect()` benefit | Warms up ControlMaster socket | Validates connectivity only |
+| `_mux_args()` output | ControlPath/ControlMaster/ControlPersist opts | Empty list `[]` |
+| `_close_mux()` behavior | Sends `ssh -O exit` to tear down master | No-op (immediate return) |
+
+**Recommendation:** On Windows, use SSH key-based authentication
+(`IdentityFile` in `~/.ssh/config`) to eliminate repeated password
+prompts.  Password auth will prompt once per SSH subprocess.
+
+### How ControlMaster is gated
+
+```python
+# _remote.py
+if control_path is None or sys.platform == "win32":
+    return []   # no mux args on Windows
+```
+
+All platform-specific logic is confined to `_mux_args()` and
+`_close_mux()` in `_remote.py`.  The rest of the codebase is fully
+platform-agnostic.
+
 ## Known Limitations and Future Work
 
 **Current Limitations:**
-- SSH ControlMaster multiplexing only works on Linux/macOS; Windows users get a fresh ssh process per operation
+- SSH ControlMaster multiplexing only works on Linux/macOS (see Windows section above)
+- Each remote operation spawns a fresh `ssh` process (mitigated by ControlMaster on Linux/macOS)
 - No session information beyond names (id, creation time, etc.)
 - No support for reading tmux config files
 - SSH must be installed and configured on the system
