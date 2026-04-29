@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import getpass
-import os
 import shlex
 import socket
 import subprocess
@@ -157,59 +156,10 @@ def _command_available_conn(conn: _SSHConnection, cmd: str) -> bool:
 
 
 def _attach_session_conn(conn: _SSHConnection, name: str) -> None:
-    """Attach to a tmux session over the persistent SSH connection with PTY."""
+    """Attach to a tmux session via system ssh (cross-platform)."""
     if not conn.is_connected:
         return
-    transport = conn._client.get_transport()
-    if transport is None:
-        return
-
-    if sys.platform == "win32":
-        _attach_session_subprocess(conn, name)
-    else:
-        _attach_session_pty(transport, name)
-
-
-def _attach_session_subprocess(conn: _SSHConnection, name: str) -> None:
-    """Attach via system ssh on Windows (termios/tty unavailable)."""
     target = f"{conn._user}@{conn._host}" if conn._user else conn._host
     subprocess.run(
         ["ssh", "-t", target, f"tmux attach-session -t {shlex.quote(name)}"]
     )
-
-
-def _attach_session_pty(transport, name: str) -> None:
-    """Attach via paramiko PTY with raw terminal I/O (Unix)."""
-    import select
-    import termios
-    import tty
-
-    channel = transport.open_session()
-    oldtty = None
-    try:
-        try:
-            cols, rows = os.get_terminal_size()
-        except OSError:
-            cols, rows = 80, 24
-        channel.get_pty(width=cols, height=rows)
-        channel.exec_command(f"tmux attach-session -t {shlex.quote(name)}")
-        oldtty = termios.tcgetattr(sys.stdin)
-        tty.setraw(sys.stdin.fileno())
-        channel.setblocking(0)
-        while True:
-            r, _, _ = select.select([channel, sys.stdin], [], [])
-            if channel in r:
-                data = channel.recv(1024)
-                if len(data) == 0:
-                    break
-                sys.stdout.buffer.write(data)
-                sys.stdout.buffer.flush()
-            if sys.stdin in r:
-                data = os.read(sys.stdin.fileno(), 1024)
-                if len(data) == 0:
-                    break
-                channel.send(data)
-    finally:
-        if oldtty is not None:
-            termios.tcsetattr(sys.stdin, termios.TCSADRAIN, oldtty)
-        channel.close()

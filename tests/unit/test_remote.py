@@ -533,184 +533,38 @@ class TestConnHelpers:
     def test_attach_session_conn_not_connected(self):
         conn = MagicMock()
         conn.is_connected = False
-        _attach_session_conn(conn, "work")
-        conn._client.get_transport.assert_not_called()
-
-    def test_attach_session_conn_no_transport(self):
-        conn = MagicMock()
-        conn.is_connected = True
-        conn._client.get_transport.return_value = None
-        _attach_session_conn(conn, "work")
-
-    def test_attach_session_conn_opens_pty_and_forwards(self):
-        channel = MagicMock()
-        channel.recv.side_effect = [b"hello", b""]
-        transport = MagicMock()
-        transport.open_session.return_value = channel
-        conn = MagicMock()
-        conn.is_connected = True
-        conn._client.get_transport.return_value = transport
-        mock_stdin = MagicMock()
-        mock_stdout = MagicMock()
-        with (
-            patch("tmux_manager._remote.os.get_terminal_size", return_value=(120, 40)),
-            patch("termios.tcgetattr", return_value=[]),
-            patch("tty.setraw"),
-            patch("termios.tcsetattr"),
-            patch(
-                "select.select",
-                side_effect=[([channel], [], []), ([channel], [], [])],
-            ),
-            patch("tmux_manager._remote.sys.stdin", mock_stdin),
-            patch("tmux_manager._remote.sys.stdout", mock_stdout),
-        ):
+        with patch("tmux_manager._remote.subprocess.run") as mock_run:
             _attach_session_conn(conn, "work")
-        channel.get_pty.assert_called_once_with(width=120, height=40)
-        channel.exec_command.assert_called_once_with("tmux attach-session -t work")
-        mock_stdout.buffer.write.assert_called_once_with(b"hello")
-        mock_stdout.buffer.flush.assert_called_once()
-        channel.close.assert_called_once()
+        mock_run.assert_not_called()
 
-    def test_attach_session_conn_fallback_terminal_size(self):
-        channel = MagicMock()
-        channel.recv.return_value = b""
-        transport = MagicMock()
-        transport.open_session.return_value = channel
-        conn = MagicMock()
-        conn.is_connected = True
-        conn._client.get_transport.return_value = transport
-        mock_stdin = MagicMock()
-        with (
-            patch("tmux_manager._remote.os.get_terminal_size", side_effect=OSError),
-            patch("termios.tcgetattr", return_value=[]),
-            patch("tty.setraw"),
-            patch("termios.tcsetattr"),
-            patch("select.select", return_value=([channel], [], [])),
-            patch("tmux_manager._remote.sys.stdin", mock_stdin),
-        ):
-            _attach_session_conn(conn, "work")
-        channel.get_pty.assert_called_once_with(width=80, height=24)
-
-    def test_attach_session_conn_stdin_forwarding(self):
-        channel = MagicMock()
-        transport = MagicMock()
-        transport.open_session.return_value = channel
-        conn = MagicMock()
-        conn.is_connected = True
-        conn._client.get_transport.return_value = transport
-        mock_stdin = MagicMock()
-        mock_stdout = MagicMock()
-        with (
-            patch("tmux_manager._remote.os.get_terminal_size", return_value=(25, 80)),
-            patch("termios.tcgetattr", return_value=[]),
-            patch("tty.setraw"),
-            patch("termios.tcsetattr"),
-            patch(
-                "select.select",
-                side_effect=[([mock_stdin], [], []), ([mock_stdin], [], [])],
-            ),
-            patch("tmux_manager._remote.os.read", side_effect=[b"q", b""]),
-            patch("tmux_manager._remote.sys.stdin", mock_stdin),
-            patch("tmux_manager._remote.sys.stdout", mock_stdout),
-        ):
-            _attach_session_conn(conn, "work")
-        channel.send.assert_called_once_with(b"q")
-        channel.close.assert_called_once()
-
-    def test_attach_session_conn_restores_tty_on_error(self):
-        channel = MagicMock()
-        transport = MagicMock()
-        transport.open_session.return_value = channel
-        conn = MagicMock()
-        conn.is_connected = True
-        conn._client.get_transport.return_value = transport
-        mock_stdin = MagicMock()
-        saved_attrs = [1, 2, 3]
-        with (
-            patch("tmux_manager._remote.os.get_terminal_size", return_value=(25, 80)),
-            patch("termios.tcgetattr", return_value=saved_attrs),
-            patch("tty.setraw", side_effect=OSError("bad")),
-            patch("termios.tcsetattr") as mock_restore,
-            patch("tmux_manager._remote.sys.stdin", mock_stdin),
-            pytest.raises(OSError, match="bad"),
-        ):
-            _attach_session_conn(conn, "work")
-        mock_restore.assert_called_once()
-        channel.close.assert_called_once()
-
-    def test_attach_session_conn_closes_channel_on_early_failure(self):
-        channel = MagicMock()
-        channel.get_pty.side_effect = paramiko.SSHException("pty failed")
-        transport = MagicMock()
-        transport.open_session.return_value = channel
-        conn = MagicMock()
-        conn.is_connected = True
-        conn._client.get_transport.return_value = transport
-        with (
-            patch("tmux_manager._remote.os.get_terminal_size", return_value=(80, 24)),
-            pytest.raises(paramiko.SSHException, match="pty failed"),
-        ):
-            _attach_session_conn(conn, "work")
-        channel.close.assert_called_once()
-
-    def test_attach_session_conn_shell_quotes_name(self):
-        channel = MagicMock()
-        channel.recv.return_value = b""
-        transport = MagicMock()
-        transport.open_session.return_value = channel
-        conn = MagicMock()
-        conn.is_connected = True
-        conn._client.get_transport.return_value = transport
-        mock_stdin = MagicMock()
-        with (
-            patch("tmux_manager._remote.os.get_terminal_size", return_value=(25, 80)),
-            patch("termios.tcgetattr", return_value=[]),
-            patch("tty.setraw"),
-            patch("termios.tcsetattr"),
-            patch("select.select", return_value=([channel], [], [])),
-            patch("tmux_manager._remote.sys.stdin", mock_stdin),
-        ):
-            _attach_session_conn(conn, "bad'; rm -rf /")
-        cmd = channel.exec_command.call_args[0][0]
-        assert cmd == "tmux attach-session -t 'bad'\"'\"'; rm -rf /'"
-
-    def test_attach_session_conn_windows_uses_subprocess(self):
+    def test_attach_session_conn_with_user(self):
         conn = MagicMock()
         conn.is_connected = True
         conn._host = "devbox"
         conn._user = "alice"
-        with (
-            patch("sys.platform", "win32"),
-            patch("tmux_manager._remote.subprocess.run") as mock_run,
-        ):
+        with patch("tmux_manager._remote.subprocess.run") as mock_run:
             _attach_session_conn(conn, "work")
         mock_run.assert_called_once_with(
             ["ssh", "-t", "alice@devbox", "tmux attach-session -t work"]
         )
 
-    def test_attach_session_conn_windows_no_user(self):
+    def test_attach_session_conn_no_user(self):
         conn = MagicMock()
         conn.is_connected = True
         conn._host = "devbox"
         conn._user = None
-        with (
-            patch("sys.platform", "win32"),
-            patch("tmux_manager._remote.subprocess.run") as mock_run,
-        ):
+        with patch("tmux_manager._remote.subprocess.run") as mock_run:
             _attach_session_conn(conn, "work")
         mock_run.assert_called_once_with(
             ["ssh", "-t", "devbox", "tmux attach-session -t work"]
         )
 
-    def test_attach_session_conn_windows_shell_quotes_name(self):
+    def test_attach_session_conn_shell_quotes_name(self):
         conn = MagicMock()
         conn.is_connected = True
         conn._host = "devbox"
         conn._user = None
-        with (
-            patch("sys.platform", "win32"),
-            patch("tmux_manager._remote.subprocess.run") as mock_run,
-        ):
+        with patch("tmux_manager._remote.subprocess.run") as mock_run:
             _attach_session_conn(conn, "bad'; rm -rf /")
         cmd = mock_run.call_args[0][0][3]
         assert cmd == "tmux attach-session -t 'bad'\"'\"'; rm -rf /'"
