@@ -246,15 +246,16 @@ def _command_available_conn(conn: _SSHConnection, cmd: str) -> bool:
 
 def _attach_session_conn(conn: _SSHConnection, name: str) -> None:
     """Attach to a tmux session over the persistent SSH connection with PTY."""
-    import select
-    import termios
-    import tty
-
     if not conn.is_connected:
         return
     transport = conn._client.get_transport()
     if transport is None:
         return
+
+    import select
+    import termios
+    import tty
+
     channel = transport.open_session()
     oldtty = None
     try:
