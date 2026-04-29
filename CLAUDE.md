@@ -53,6 +53,7 @@ LICENSE
 - **Class:** `TmuxManager(host=None, user=None)`
 - **Responsibility:** Dispatch layer — determines local vs remote and delegates
 - **Key Methods:**
+  - `connect()` → validate SSH connectivity and warm up ControlMaster; raises `ConnectionError` on failure; returns `self` for chaining
   - `is_available()` → `command_available("tmux")`
   - `command_available(cmd)` → check if cmd is on PATH
   - `list_sessions()` → return session names
@@ -77,6 +78,7 @@ LICENSE
 - **`_ssh_target(host, user)`** — builds `user@host` or `host` string
 - **`_mux_args(control_path)`** — returns ControlMaster SSH options (empty on Windows)
 - **`_ssh_exec(host, user, command, *, control_path=None)`** — runs `ssh target command` via subprocess, returns `(exit_status, stdout)`. Returns `(-1, "")` on `OSError`
+- **`_validate(host, user, *, control_path=None)`** — runs `ssh host true` to check reachability; returns `bool`
 - **Helper functions:** `_list_sessions`, `_new_session`, `_kill_session`, `_command_available` — all take `host`, `user`, and `control_path` kwarg, delegate to `_ssh_exec`
 - **`_attach_session(host, user, name, *, control_path=None)`** — uses `ssh -t` for interactive PTY attach
 - **`_close_mux(host, user, control_path)`** — sends `ssh -O exit` to tear down ControlMaster (no-op on Windows)

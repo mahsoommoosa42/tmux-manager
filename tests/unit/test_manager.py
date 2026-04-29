@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import os
-from unittest.mock import ANY, patch
+from unittest.mock import patch
+
+import pytest
 
 from tmux_manager import TmuxManager
 
@@ -64,6 +66,10 @@ class TestTmuxManagerLocal:
         with TmuxManager() as mgr:
             assert mgr._host is None
 
+    def test_connect_local_noop(self):
+        mgr = TmuxManager()
+        assert mgr.connect() is mgr
+
     def test_close_local_is_noop(self):
         mgr = TmuxManager()
         mgr.close()  # should not raise
@@ -109,6 +115,26 @@ class TestTmuxManagerRemote:
         with patch("tmux_manager.manager._remote._close_mux") as m:
             mgr.close()
         m.assert_called_once_with("devbox", "alice", cp)
+
+    def test_connect_remote_success(self):
+        with patch("tmux_manager.manager._remote._validate", return_value=True) as m:
+            mgr = TmuxManager("devbox", "alice")
+            assert mgr.connect() is mgr
+        m.assert_called_once_with(
+            "devbox", "alice", control_path=mgr._control_path,
+        )
+
+    def test_connect_remote_failure(self):
+        with patch("tmux_manager.manager._remote._validate", return_value=False):
+            mgr = TmuxManager("unreachable")
+            with pytest.raises(ConnectionError, match="unreachable"):
+                mgr.connect()
+
+    def test_connect_chaining(self):
+        with patch("tmux_manager.manager._remote._validate", return_value=True):
+            with patch("tmux_manager.manager._remote._list_sessions", return_value=["s1"]):
+                mgr = TmuxManager("devbox").connect()
+                assert mgr.list_sessions() == ["s1"]
 
     def test_is_available_true(self):
         with patch("tmux_manager.manager._remote._command_available", return_value=True):

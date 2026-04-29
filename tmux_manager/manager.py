@@ -51,6 +51,26 @@ class TmuxManager:
         if cd is not None:
             shutil.rmtree(cd, ignore_errors=True)
 
+    # ── connectivity ───────────────────────────────────────────────────
+
+    def connect(self) -> "TmuxManager":
+        """Validate SSH connectivity and warm up ControlMaster.
+
+        Raises ``ConnectionError`` if the remote host is unreachable.
+        No-op for local mode.  Returns *self* so callers can chain::
+
+            mgr = TmuxManager("devbox", "alice").connect()
+        """
+        if self._host is not None:
+            if not _remote._validate(
+                self._host, self._user,
+                control_path=self._control_path,
+            ):
+                raise ConnectionError(
+                    f"SSH connection to {self._host} failed"
+                )
+        return self
+
     # ── tool availability ─────────────────────────────────────────────
 
     def is_available(self) -> bool:

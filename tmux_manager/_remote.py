@@ -52,6 +52,14 @@ def _ssh_exec(
         return -1, ""
 
 
+def _validate(
+    host: str, user: str | None, *, control_path: str | None = None,
+) -> bool:
+    """Return True if the remote host is reachable via SSH."""
+    exit_status, _ = _ssh_exec(host, user, "true", control_path=control_path)
+    return exit_status == 0
+
+
 def _list_sessions(
     host: str, user: str | None, *, control_path: str | None = None,
 ) -> list[str]:

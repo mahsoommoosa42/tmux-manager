@@ -14,6 +14,7 @@ from tmux_manager._remote import (
     _new_session,
     _ssh_exec,
     _ssh_target,
+    _validate,
 )
 
 
@@ -87,6 +88,25 @@ class TestSshExec:
         cmd = m.call_args[0][0]
         assert "-o" in cmd
         assert "ControlPath=/tmp/ctrl" in cmd
+
+
+# ── _validate ────────────────────────────────────────────────────────────────
+
+
+class TestValidate:
+    def test_success(self):
+        with patch("tmux_manager._remote._ssh_exec", return_value=(0, "")) as m:
+            assert _validate("devbox", "alice") is True
+        assert m.call_args[0][2] == "true"
+
+    def test_failure(self):
+        with patch("tmux_manager._remote._ssh_exec", return_value=(255, "")):
+            assert _validate("devbox", None) is False
+
+    def test_passes_control_path(self):
+        with patch("tmux_manager._remote._ssh_exec", return_value=(0, "")) as m:
+            _validate("h", None, control_path="/tmp/c")
+        assert m.call_args[1]["control_path"] == "/tmp/c"
 
 
 # ── helper functions ─────────────────────────────────────────────────────────

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from tmux_manager import TmuxManager
 
 
@@ -47,6 +49,21 @@ class TestRemoteFlow:
             for call in mock_exec.call_args_list:
                 assert call[0][0] == "devbox"
                 assert call[0][1] == "alice"
+
+    def test_connect_then_operate(self):
+        """connect() validates SSH, then subsequent calls work."""
+        with patch("tmux_manager._remote._ssh_exec") as mock_exec:
+            mock_exec.return_value = (0, "")
+            mgr = TmuxManager("devbox", "alice").connect()
+
+            mock_exec.return_value = (0, "main\n")
+            assert mgr.list_sessions() == ["main"]
+
+    def test_connect_failure_raises(self):
+        """connect() raises ConnectionError when SSH fails."""
+        with patch("tmux_manager._remote._ssh_exec", return_value=(255, "")):
+            with pytest.raises(ConnectionError):
+                TmuxManager("unreachable", None).connect()
 
     def test_ssh_failure_returns_empty(self):
         """When ssh fails, list_sessions returns [] gracefully."""
