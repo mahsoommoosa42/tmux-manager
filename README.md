@@ -65,8 +65,8 @@ mgr = TmuxManager("devbox")
 print(mgr.list_sessions())
 ```
 
-`attach_session` always delegates to the system `ssh` binary so the full
-SSH config (ProxyJump, etc.) is respected there too.
+`attach_session` uses a paramiko channel with PTY allocation over the
+persistent connection — no separate `ssh` subprocess is spawned.
 
 ## Notes
 
@@ -75,7 +75,7 @@ SSH config (ProxyJump, etc.) is respected there too.
   to ensure cleanup
 - If the remote host is unreachable, construction raises immediately
   (no silent failures)
-- `attach_session` uses the system `ssh` binary for PTY support
+- `attach_session` uses a paramiko PTY channel over the persistent connection
 - Remote connections require the host to be in `~/.ssh/known_hosts` (connect once via `ssh` CLI to add it)
 
 ## Development
