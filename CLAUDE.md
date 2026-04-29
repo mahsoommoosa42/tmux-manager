@@ -82,7 +82,7 @@ LICENSE
   - Uses `paramiko` for command execution (key auth first, password fallback via `getpass`)
   - `_load_ssh_config()` uses `paramiko.SSHConfig` to parse `~/.ssh/config`
   - Handles hostname aliases, custom ports, identity files
-  - `_attach_session_conn()` uses a paramiko channel with PTY for interactive attach over the persistent connection
+  - `_attach_session_conn()` uses system `ssh -t` via subprocess for interactive attach (cross-platform, no Unix-only dependencies)
 - **Testing:** Mock `paramiko.SSHClient` and `_load_ssh_config`. For `_SSHConnection`, mock at `tmux_manager._remote.paramiko.SSHClient` and `tmux_manager._remote._load_ssh_config`.
 
 ## Testing Strategy
@@ -217,10 +217,10 @@ pytest tests/unit/test_manager.py::TestTmuxManagerLocal::test_is_available_true
 
 ## Design Decisions
 
-### Why paramiko for everything?
-- Single persistent SSH connection for all operations (queries and attach)
-- `attach_session` uses a paramiko channel with PTY allocation and raw terminal I/O forwarding
-- Avoids re-authentication for interactive sessions on password-auth hosts
+### Why paramiko for queries, subprocess for attach?
+- Persistent SSH connection for non-interactive operations (list, create, kill) — avoids repeated auth
+- `attach_session` uses system `ssh -t` via subprocess — delegates terminal I/O to the native ssh client
+- This avoids Unix-only modules (`termios`, `tty`, `select`) and keeps the codebase cross-platform
 
 ### Why synchronous API?
 - Simplicity: no event loops or asyncio complexity
@@ -237,7 +237,8 @@ pytest tests/unit/test_manager.py::TestTmuxManagerLocal::test_is_available_true
 - `_SSHConnection` is intentionally private (underscore prefix) and never exposed in the public API
 - `TmuxManager` supports context manager (`with`) for deterministic cleanup
 - Construction with an unreachable host raises immediately — no silent failures
-- All operations including `attach_session` use the persistent connection — no separate `ssh` subprocess needed
+- Non-interactive operations (list, create, kill, command_available) use the persistent connection
+- `attach_session` uses system `ssh -t` subprocess for cross-platform terminal I/O
 
 ## Known Limitations and Future Work
 
