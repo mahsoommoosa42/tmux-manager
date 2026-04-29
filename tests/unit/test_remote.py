@@ -1013,11 +1013,11 @@ class TestConnHelpers:
         mock_stdout = MagicMock()
         with (
             patch("tmux_manager._remote.os.get_terminal_size", return_value=(120, 40)),
-            patch("tmux_manager._remote.termios.tcgetattr", return_value=[]),
-            patch("tmux_manager._remote.tty.setraw"),
-            patch("tmux_manager._remote.termios.tcsetattr"),
+            patch("termios.tcgetattr", return_value=[]),
+            patch("tty.setraw"),
+            patch("termios.tcsetattr"),
             patch(
-                "tmux_manager._remote.select.select",
+                "select.select",
                 side_effect=[([channel], [], []), ([channel], [], [])],
             ),
             patch("tmux_manager._remote.sys.stdin", mock_stdin),
@@ -1041,10 +1041,10 @@ class TestConnHelpers:
         mock_stdin = MagicMock()
         with (
             patch("tmux_manager._remote.os.get_terminal_size", side_effect=OSError),
-            patch("tmux_manager._remote.termios.tcgetattr", return_value=[]),
-            patch("tmux_manager._remote.tty.setraw"),
-            patch("tmux_manager._remote.termios.tcsetattr"),
-            patch("tmux_manager._remote.select.select", return_value=([channel], [], [])),
+            patch("termios.tcgetattr", return_value=[]),
+            patch("tty.setraw"),
+            patch("termios.tcsetattr"),
+            patch("select.select", return_value=([channel], [], [])),
             patch("tmux_manager._remote.sys.stdin", mock_stdin),
         ):
             _attach_session_conn(conn, "work")
@@ -1061,11 +1061,11 @@ class TestConnHelpers:
         mock_stdout = MagicMock()
         with (
             patch("tmux_manager._remote.os.get_terminal_size", return_value=(25, 80)),
-            patch("tmux_manager._remote.termios.tcgetattr", return_value=[]),
-            patch("tmux_manager._remote.tty.setraw"),
-            patch("tmux_manager._remote.termios.tcsetattr"),
+            patch("termios.tcgetattr", return_value=[]),
+            patch("tty.setraw"),
+            patch("termios.tcsetattr"),
             patch(
-                "tmux_manager._remote.select.select",
+                "select.select",
                 side_effect=[([mock_stdin], [], []), ([mock_stdin], [], [])],
             ),
             patch("tmux_manager._remote.os.read", side_effect=[b"q", b""]),
@@ -1087,9 +1087,9 @@ class TestConnHelpers:
         saved_attrs = [1, 2, 3]
         with (
             patch("tmux_manager._remote.os.get_terminal_size", return_value=(25, 80)),
-            patch("tmux_manager._remote.termios.tcgetattr", return_value=saved_attrs),
-            patch("tmux_manager._remote.tty.setraw", side_effect=OSError("bad")),
-            patch("tmux_manager._remote.termios.tcsetattr") as mock_restore,
+            patch("termios.tcgetattr", return_value=saved_attrs),
+            patch("tty.setraw", side_effect=OSError("bad")),
+            patch("termios.tcsetattr") as mock_restore,
             patch("tmux_manager._remote.sys.stdin", mock_stdin),
             pytest.raises(OSError, match="bad"),
         ):
@@ -1123,10 +1123,10 @@ class TestConnHelpers:
         mock_stdin = MagicMock()
         with (
             patch("tmux_manager._remote.os.get_terminal_size", return_value=(25, 80)),
-            patch("tmux_manager._remote.termios.tcgetattr", return_value=[]),
-            patch("tmux_manager._remote.tty.setraw"),
-            patch("tmux_manager._remote.termios.tcsetattr"),
-            patch("tmux_manager._remote.select.select", return_value=([channel], [], [])),
+            patch("termios.tcgetattr", return_value=[]),
+            patch("tty.setraw"),
+            patch("termios.tcsetattr"),
+            patch("select.select", return_value=([channel], [], [])),
             patch("tmux_manager._remote.sys.stdin", mock_stdin),
         ):
             _attach_session_conn(conn, "bad'; rm -rf /")

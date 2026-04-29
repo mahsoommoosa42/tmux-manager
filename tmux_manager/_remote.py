@@ -4,13 +4,10 @@ from __future__ import annotations
 
 import getpass
 import os
-import select
 import shlex
 import socket
 import subprocess
 import sys
-import termios
-import tty
 from pathlib import Path
 
 import paramiko
@@ -249,6 +246,10 @@ def _command_available_conn(conn: _SSHConnection, cmd: str) -> bool:
 
 def _attach_session_conn(conn: _SSHConnection, name: str) -> None:
     """Attach to a tmux session over the persistent SSH connection with PTY."""
+    import select
+    import termios
+    import tty
+
     if not conn.is_connected:
         return
     transport = conn._client.get_transport()
