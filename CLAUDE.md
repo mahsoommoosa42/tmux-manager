@@ -61,6 +61,7 @@ LICENSE
   - `new_session(name)` → create detached session
   - `kill_session(name)` → kill session
   - `attach_session(name)` → attach (requires PTY)
+  - `capture_pane(name)` → return visible contents of the session's active pane as a string (empty string on failure); used by picker UIs to preview sessions before attaching
 - **`close()`** — tears down SSH ControlMaster and removes temp dir. Called by `__exit__` and `__del__`
 - **Context Manager:** Supported (`with TmuxManager(...) as mgr:`). Calls `close()` on exit to clean up SSH multiplexing
 - **Testing:** Mock `_local` or `_remote` functions; verify dispatch logic

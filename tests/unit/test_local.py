@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 
 from tmux_manager._local import (
     attach_session,
+    capture_pane,
     command_available,
     kill_session,
     list_sessions,
@@ -88,3 +89,37 @@ class TestAttachSession:
         assert "tmux" in args
         assert "attach-session" in args
         assert "main" in args
+
+
+class TestCapturePane:
+    def _result(self, returncode: int, stdout: str) -> MagicMock:
+        r = MagicMock()
+        r.returncode = returncode
+        r.stdout = stdout
+        return r
+
+    def test_returns_stdout_on_success(self):
+        with patch(
+            "tmux_manager._local.subprocess.run",
+            return_value=self._result(0, "hello\nworld\n"),
+        ) as m:
+            assert capture_pane("main") == "hello\nworld\n"
+        cmd = m.call_args[0][0]
+        assert "tmux" in cmd
+        assert "capture-pane" in cmd
+        assert "-p" in cmd
+        assert "main" in cmd
+
+    def test_empty_string_on_failure(self):
+        with patch(
+            "tmux_manager._local.subprocess.run",
+            return_value=self._result(1, "error"),
+        ):
+            assert capture_pane("main") == ""
+
+    def test_preserves_empty_output(self):
+        with patch(
+            "tmux_manager._local.subprocess.run",
+            return_value=self._result(0, ""),
+        ):
+            assert capture_pane("main") == ""

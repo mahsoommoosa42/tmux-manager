@@ -47,6 +47,7 @@ TmuxManager(host=None, user=None)
 | `new_session(name)` | Create a new detached session |
 | `kill_session(name)` | Kill the named session |
 | `attach_session(name)` | Attach (requires a live PTY) |
+| `capture_pane(name)` | Return visible contents of session's active pane (for previews) |
 
 ## SSH aliases
 

@@ -114,6 +114,24 @@ def _attach_session(
     )
 
 
+def _capture_pane(
+    host: str, user: str | None, name: str, *, control_path: str | None = None,
+) -> str:
+    """Return the visible contents of the active pane of session *name*.
+
+    Returns an empty string if the session does not exist or the SSH
+    command fails.
+    """
+    exit_status, output = _ssh_exec(
+        host, user,
+        f"tmux capture-pane -p -J -t {shlex.quote(name)} 2>/dev/null",
+        control_path=control_path,
+    )
+    if exit_status != 0:
+        return ""
+    return output
+
+
 def _close_mux(host: str, user: str | None, control_path: str) -> None:
     """Ask the ControlMaster process to exit."""
     if sys.platform == "win32":

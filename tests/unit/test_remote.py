@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 
 from tmux_manager._remote import (
     _attach_session,
+    _capture_pane,
     _close_mux,
     _command_available,
     _kill_session,
@@ -210,6 +211,32 @@ class TestAttachSession:
             _attach_session("devbox", None, "s", control_path="/tmp/c")
         cmd = mock_run.call_args[0][0]
         assert "ControlPath=/tmp/c" in cmd
+
+
+class TestCapturePane:
+    def test_returns_output_on_success(self):
+        with patch(
+            "tmux_manager._remote._ssh_exec",
+            return_value=(0, "hello\nworld\n"),
+        ) as m:
+            assert _capture_pane("devbox", "alice", "main") == "hello\nworld\n"
+        cmd = m.call_args[0][2]
+        assert "tmux capture-pane -p -J -t main" in cmd
+
+    def test_empty_on_failure(self):
+        with patch("tmux_manager._remote._ssh_exec", return_value=(1, "")):
+            assert _capture_pane("devbox", None, "main") == ""
+
+    def test_shell_quotes_name(self):
+        with patch("tmux_manager._remote._ssh_exec", return_value=(0, "")) as m:
+            _capture_pane("devbox", None, "bad'; rm -rf /")
+        cmd = m.call_args[0][2]
+        assert "'bad'\"'\"'; rm -rf /'" in cmd
+
+    def test_passes_control_path(self):
+        with patch("tmux_manager._remote._ssh_exec", return_value=(0, "")) as m:
+            _capture_pane("h", None, "s", control_path="/tmp/c")
+        assert m.call_args[1]["control_path"] == "/tmp/c"
 
 
 # ── _close_mux ───────────────────────────────────────────────────────────────

@@ -56,6 +56,14 @@ class TestTmuxManagerLocal:
             TmuxManager().attach_session("main")
         m.assert_called_once_with("main")
 
+    def test_capture_pane(self):
+        with patch(
+            "tmux_manager.manager._local.capture_pane", return_value="out",
+        ) as m:
+            result = TmuxManager().capture_pane("main")
+        m.assert_called_once_with("main")
+        assert result == "out"
+
     def test_init_stores_none_host(self):
         mgr = TmuxManager()
         assert mgr._host is None
@@ -191,6 +199,17 @@ class TestTmuxManagerRemote:
         m.assert_called_once_with(
             "devbox", "alice", "main", control_path=mgr._control_path,
         )
+
+    def test_capture_pane_delegates(self):
+        with patch(
+            "tmux_manager.manager._remote._capture_pane", return_value="out",
+        ) as m:
+            mgr = TmuxManager("devbox", "alice")
+            result = mgr.capture_pane("main")
+        m.assert_called_once_with(
+            "devbox", "alice", "main", control_path=mgr._control_path,
+        )
+        assert result == "out"
 
     def test_no_user_passes_none(self):
         with patch("tmux_manager.manager._remote._list_sessions", return_value=[]) as m:

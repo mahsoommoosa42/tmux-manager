@@ -44,3 +44,18 @@ def kill_session(name: str) -> bool:
 def attach_session(name: str) -> None:
     """Attach to the named local tmux session (requires a live PTY)."""
     subprocess.run(["tmux", "attach-session", "-t", name])
+
+
+def capture_pane(name: str) -> str:
+    """Return the visible contents of the active pane of session *name*.
+
+    Returns an empty string if the session does not exist or tmux fails.
+    """
+    result = subprocess.run(
+        ["tmux", "capture-pane", "-p", "-J", "-t", name],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return ""
+    return result.stdout

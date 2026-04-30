@@ -127,3 +127,16 @@ class TmuxManager:
                 self._host, self._user, name,
                 control_path=self._control_path,
             )
+
+    def capture_pane(self, name: str) -> str:
+        """Return the visible contents of the active pane of session *name*.
+
+        Returns an empty string if the session does not exist or tmux
+        fails (for instance, when the host is unreachable).
+        """
+        if self._host is None:
+            return _local.capture_pane(name)
+        return _remote._capture_pane(
+            self._host, self._user, name,
+            control_path=self._control_path,
+        )
